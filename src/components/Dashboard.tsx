@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { runVoiceCommand, type Weather } from "@/lib/assistant.functions";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { Button } from "@/components/ui/button";
+import { Reminders } from "@/components/Reminders";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +45,7 @@ export function Dashboard({ email }: { email: string }) {
       setLog((l) => [...l, { role: "assistant", text: r.reply }]);
       if (r.action === "create") qc.invalidateQueries({ queryKey: ["transactions"] });
       if (r.weather) setWeather(r.weather);
+      if (r.action === "remind") { qc.invalidateQueries({ queryKey: ["reminders"] }); toast.success(r.reply); }
       return r.reply;
     } catch (e) {
       const m = (e as Error).message || "Algo salió mal.";
@@ -169,6 +171,7 @@ export function Dashboard({ email }: { email: string }) {
         {/* Panel */}
         <section className="space-y-6">
           {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
+          <Reminders />
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Balance del mes" value={stats.balance} highlight />
             <Stat label="Ingresos" value={stats.income} />
