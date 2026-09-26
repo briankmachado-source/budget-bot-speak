@@ -21,29 +21,38 @@ export const CATEGORIES = [
 ];
 
 const resultSchema = z.object({
-  action: z.enum(["create", "query", "weather", "unknown"]),
+  action: z.enum(["create", "query", "weather", "remind", "unknown"]),
   type: z.enum(["expense", "income"]).nullable(),
   amount: z.number().nullable(),
   category: z.string().nullable(),
   description: z.string().nullable(),
   city: z.string().nullable(),
+  remind_at: z.string().nullable(),
   reply: z.string(),
 });
 
 const jsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["action", "type", "amount", "category", "description", "city", "reply"],
+  required: ["action", "type", "amount", "category", "description", "city", "remind_at", "reply"],
   properties: {
-    action: { type: "string", enum: ["create", "query", "weather", "unknown"] },
+    action: { type: "string", enum: ["create", "query", "weather", "remind", "unknown"] },
     type: { type: ["string", "null"], enum: ["expense", "income", null] },
     amount: { type: ["number", "null"] },
     category: { type: ["string", "null"] },
     description: { type: ["string", "null"] },
     city: { type: ["string", "null"] },
+    remind_at: { type: ["string", "null"] },
     reply: { type: "string" },
   },
 };
+
+function bogotaNow() {
+  return new Date().toLocaleString("es-CO", {
+    timeZone: "America/Bogota", weekday: "long", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
 
 const DEFAULT_CITY = "Bogotá";
 
@@ -133,15 +142,25 @@ export const runVoiceCommand = createServerFn({ method: "POST" })
       }
     }
 
-    const system = `Eres "Atento", un asistente de voz de finanzas personales en Colombia. Moneda: pesos colombianos (COP).
+    const { data: pending } = await context.supabase
+      .from("reminders")
+      .select("title, remind_at")
+      .eq("done", false)
+      .order("remind_at")
+      .limit(20);
+
+    const system = `Eres "Atento", un asistente de voz de finanzas personales y recordatorios en Colombia. Moneda: pesos colombianos (COP).
+Fecha y hora actual en Colombia (UTC-05:00): ${bogotaNow()}.
 Interpreta el comando del usuario (transcrito de voz, puede tener errores) y responde SOLO con el JSON pedido.
 - Si pide registrar un gasto o ingreso: action="create", type="expense"|"income", amount en pesos como número entero (ej. "400 mil" = 400000, "cuatrocientos mil" = 400000, "$400.000" = 400000, "un millón y medio" = 1500000), category exactamente una de: ${CATEGORIES.join(", ")}, description corta en español (ej. "Verduras"). Ignora saludos como "hola".
-- Si pregunta por sus finanzas: action="query" y responde usando el resumen del mes.
+- Si pide un recordatorio o alarma ("recuérdame...", "ponme una alarma..."): action="remind", description = qué recordar, corto (ej. "Estar en la iglesia"), remind_at = fecha y hora ISO 8601 con offset -05:00 (ej. "2026-09-27T08:30:00-05:00"). Si solo dice un día sin hora, usa las 09:00. "en 2 días" = misma hora dentro de 2 días; "en 10 minutos" = ahora + 10 min. Si no queda claro cuándo, action="unknown" y pregunta.
+- Si pregunta por sus finanzas o sus recordatorios: action="query" y responde con los datos de abajo.
 - Si pregunta por el clima o el pronóstico: action="weather", city = nombre de la ciudad mencionada (ej. "Barranquilla") o null si no menciona ninguna. reply puede ser "".
 - Si no entiendes o falta el monto: action="unknown" y pide aclaración.
-- En acciones que no son "create", type, amount, category y description van en null. city solo se usa en "weather".
+- Campos que no aplican a la acción van en null.
 reply: frase corta y natural en español para decir en voz alta, montos escritos como "400 mil pesos". Máximo 2 frases.
-Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance ${income - expense} COP. Gastos por categoría: ${JSON.stringify(byCat)}. Últimos movimientos: ${JSON.stringify((rows ?? []).slice(0, 10))}.`;
+Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance ${income - expense} COP. Gastos por categoría: ${JSON.stringify(byCat)}. Últimos movimientos: ${JSON.stringify((rows ?? []).slice(0, 10))}.
+Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
 
     const raw = await callModel(system, data.text, apiKey);
     let parsed;
