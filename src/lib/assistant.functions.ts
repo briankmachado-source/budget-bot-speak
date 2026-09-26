@@ -47,7 +47,6 @@ const jsonSchema = {
   },
 };
 
-const DEFAULT_CITY = "Bogotá";
 
 function bogotaNow() {
   return new Date().toLocaleString("es-CO", {
