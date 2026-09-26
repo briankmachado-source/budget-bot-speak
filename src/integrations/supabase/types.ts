@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      reminders: {
+        Row: {
+          created_at: string
+          done: boolean
+          id: string
+          notified: boolean
+          remind_at: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          done?: boolean
+          id?: string
+          notified?: boolean
+          remind_at: string
+          title: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          done?: boolean
+          id?: string
+          notified?: boolean
+          remind_at?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
