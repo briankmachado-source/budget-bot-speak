@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { runVoiceCommand } from "@/lib/assistant.functions";
+import { runVoiceCommand, type Weather } from "@/lib/assistant.functions";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ export function Dashboard({ email }: { email: string }) {
   const run = useServerFn(runVoiceCommand);
   const [log, setLog] = useState<Msg[]>([]);
   const [text, setText] = useState("");
+  const [weather, setWeather] = useState<Weather | null>(null);
 
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions"],
@@ -42,6 +43,7 @@ export function Dashboard({ email }: { email: string }) {
       const r = await run({ data: { text: cmd } });
       setLog((l) => [...l, { role: "assistant", text: r.reply }]);
       if (r.action === "create") qc.invalidateQueries({ queryKey: ["transactions"] });
+      if (r.weather) setWeather(r.weather);
       return r.reply;
     } catch (e) {
       const m = (e as Error).message || "Algo salió mal.";
@@ -166,6 +168,7 @@ export function Dashboard({ email }: { email: string }) {
 
         {/* Panel */}
         <section className="space-y-6">
+          {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Balance del mes" value={stats.balance} highlight />
             <Stat label="Ingresos" value={stats.income} />
