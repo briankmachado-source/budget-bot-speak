@@ -102,7 +102,7 @@ export const runVoiceCommand = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ text: z.string().min(1).max(500) }).parse(d))
   .handler(async ({ data, context }) => {
-    const apiKey = process.env.LOVABLE_API_KEY;
+    const apiKey = process.env['LOVABLE_API_KEY'];
     if (!apiKey) throw new Error("Falta la configuración de IA.");
 
     const monthStart = new Date();
