@@ -47,6 +47,8 @@ const jsonSchema = {
   },
 };
 
+const DEFAULT_CITY = "Bogotá";
+
 function bogotaNow() {
   return new Date().toLocaleString("es-CO", {
     timeZone: "America/Bogota", weekday: "long", year: "numeric", month: "2-digit", day: "2-digit",
@@ -179,6 +181,21 @@ Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
       const rain = w.rainChance != null ? ` Probabilidad de lluvia del ${w.rainChance} por ciento.` : "";
       const reply = `En ${w.city} hace ${w.temp} grados, ${w.condition.toLowerCase()}. Hoy entre ${w.min} y ${w.max} grados.${rain}`;
       return { action: "weather" as const, reply, transaction: null, weather: w };
+    }
+
+    if (parsed.action === "remind") {
+      const when = parsed.remind_at ? new Date(parsed.remind_at) : null;
+      if (!when || isNaN(when.getTime()) || !parsed.description) {
+        return { action: "unknown" as const, reply: "¿Para cuándo quieres el recordatorio?", transaction: null, weather: null };
+      }
+      const { error } = await context.supabase
+        .from("reminders")
+        .insert({ user_id: context.userId, title: parsed.description, remind_at: when.toISOString() });
+      if (error) throw new Error("No pude guardar el recordatorio.");
+      const label = when.toLocaleString("es-CO", {
+        timeZone: "America/Bogota", weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit",
+      });
+      return { action: "remind" as const, reply: `Listo, te recordaré ${parsed.description.toLowerCase()} el ${label}.`, transaction: null, weather: null };
     }
 
     if (parsed.action === "create") {
