@@ -19,27 +19,31 @@ export const CATEGORIES = [
 ];
 
 const resultSchema = z.object({
-  action: z.enum(["create", "query", "unknown"]),
+  action: z.enum(["create", "query", "weather", "unknown"]),
   type: z.enum(["expense", "income"]).nullable(),
   amount: z.number().nullable(),
   category: z.string().nullable(),
   description: z.string().nullable(),
+  city: z.string().nullable(),
   reply: z.string(),
 });
 
 const jsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["action", "type", "amount", "category", "description", "reply"],
+  required: ["action", "type", "amount", "category", "description", "city", "reply"],
   properties: {
-    action: { type: "string", enum: ["create", "query", "unknown"] },
+    action: { type: "string", enum: ["create", "query", "weather", "unknown"] },
     type: { type: ["string", "null"], enum: ["expense", "income", null] },
     amount: { type: ["number", "null"] },
     category: { type: ["string", "null"] },
     description: { type: ["string", "null"] },
+    city: { type: ["string", "null"] },
     reply: { type: "string" },
   },
 };
+
+const DEFAULT_CITY = "Bogotá";
 
 async function callModel(system: string, user: string, apiKey: string) {
   const res = await fetch("https://ai.gateway.lovable.dev/v1/responses", {
