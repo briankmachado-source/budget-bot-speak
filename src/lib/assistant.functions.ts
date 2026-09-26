@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { getWeather, type Weather } from "./weather.server";
+export type { Weather };
 
 export const CATEGORIES = [
   "Mercado",
@@ -135,7 +137,9 @@ export const runVoiceCommand = createServerFn({ method: "POST" })
 Interpreta el comando del usuario (transcrito de voz, puede tener errores) y responde SOLO con el JSON pedido.
 - Si pide registrar un gasto o ingreso: action="create", type="expense"|"income", amount en pesos como número entero (ej. "400 mil" = 400000, "cuatrocientos mil" = 400000, "$400.000" = 400000, "un millón y medio" = 1500000), category exactamente una de: ${CATEGORIES.join(", ")}, description corta en español (ej. "Verduras"). Ignora saludos como "hola".
 - Si pregunta por sus finanzas: action="query" y responde usando el resumen del mes.
+- Si pregunta por el clima o el pronóstico: action="weather", city = nombre de la ciudad mencionada (ej. "Barranquilla") o null si no menciona ninguna. reply puede ser "".
 - Si no entiendes o falta el monto: action="unknown" y pide aclaración.
+- En acciones que no son "create", type, amount, category y description van en null. city solo se usa en "weather".
 reply: frase corta y natural en español para decir en voz alta, montos escritos como "400 mil pesos". Máximo 2 frases.
 Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance ${income - expense} COP. Gastos por categoría: ${JSON.stringify(byCat)}. Últimos movimientos: ${JSON.stringify((rows ?? []).slice(0, 10))}.`;
 
@@ -144,12 +148,23 @@ Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance $
     try {
       parsed = resultSchema.parse(JSON.parse(raw));
     } catch {
-      return { action: "unknown" as const, reply: "No te entendí bien, ¿puedes repetirlo?", transaction: null };
+      return { action: "unknown" as const, reply: "No te entendí bien, ¿puedes repetirlo?", transaction: null, weather: null };
+    }
+
+    if (parsed.action === "weather") {
+      const city = parsed.city?.trim() || DEFAULT_CITY;
+      const w = await getWeather(city).catch(() => null);
+      if (!w) {
+        return { action: "unknown" as const, reply: `No encontré el clima para ${city}.`, transaction: null, weather: null };
+      }
+      const rain = w.rainChance != null ? ` Probabilidad de lluvia del ${w.rainChance} por ciento.` : "";
+      const reply = `En ${w.city} hace ${w.temp} grados, ${w.condition.toLowerCase()}. Hoy entre ${w.min} y ${w.max} grados.${rain}`;
+      return { action: "weather" as const, reply, transaction: null, weather: w };
     }
 
     if (parsed.action === "create") {
       if (!parsed.amount || parsed.amount <= 0) {
-        return { action: "unknown" as const, reply: "¿Por qué monto quieres registrarlo?", transaction: null };
+        return { action: "unknown" as const, reply: "¿Por qué monto quieres registrarlo?", transaction: null, weather: null };
       }
       const category = CATEGORIES.includes(parsed.category ?? "") ? parsed.category! : "Otros";
       const { data: tx, error } = await context.supabase
@@ -164,7 +179,7 @@ Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance $
         .select()
         .single();
       if (error) throw new Error("No pude guardar el registro.");
-      return { action: "create" as const, reply: parsed.reply, transaction: tx };
+      return { action: "create" as const, reply: parsed.reply, transaction: tx, weather: null };
     }
-    return { action: parsed.action, reply: parsed.reply, transaction: null };
+    return { action: parsed.action, reply: parsed.reply, transaction: null, weather: null };
   });
