@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { runVoiceCommand } from "@/lib/assistant.functions";
+import { runVoiceCommand, type Weather } from "@/lib/assistant.functions";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ export function Dashboard({ email }: { email: string }) {
   const run = useServerFn(runVoiceCommand);
   const [log, setLog] = useState<Msg[]>([]);
   const [text, setText] = useState("");
+  const [weather, setWeather] = useState<Weather | null>(null);
 
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions"],
@@ -42,6 +43,7 @@ export function Dashboard({ email }: { email: string }) {
       const r = await run({ data: { text: cmd } });
       setLog((l) => [...l, { role: "assistant", text: r.reply }]);
       if (r.action === "create") qc.invalidateQueries({ queryKey: ["transactions"] });
+      if (r.weather) setWeather(r.weather);
       return r.reply;
     } catch (e) {
       const m = (e as Error).message || "Algo salió mal.";
@@ -131,7 +133,7 @@ export function Dashboard({ email }: { email: string }) {
             {log.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 Prueba: <span className="text-foreground">"Hola, registra pago por 400 mil de verduras"</span> o{" "}
-                <span className="text-foreground">"Atento, ¿cuánto he gastado este mes?"</span>
+                <span className="text-foreground">"Atento, ¿cuánto he gastado este mes?"</span> o{" "}<span className="text-foreground">"Hola, ¿cómo está el clima en Barranquilla?"</span>
               </p>
             )}
             {log.map((m, i) => (
@@ -166,6 +168,7 @@ export function Dashboard({ email }: { email: string }) {
 
         {/* Panel */}
         <section className="space-y-6">
+          {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Balance del mes" value={stats.balance} highlight />
             <Stat label="Ingresos" value={stats.income} />
@@ -254,6 +257,41 @@ function Stat({ label, value, highlight }: { label: string; value: number; highl
     <div className={cn("rounded-2xl border p-4", highlight ? "bg-primary text-primary-foreground" : "bg-card")}>
       <p className={cn("text-xs", highlight ? "opacity-70" : "text-muted-foreground")}>{label}</p>
       <p className="mt-1 truncate font-display text-lg font-bold tabular-nums md:text-xl">{cop.format(value)}</p>
+    </div>
+  );
+}
+
+function WeatherIcon({ code, className }: { code: number; className?: string }) {
+  if (code >= 95) return <CloudLightning className={className} />;
+  if (code >= 51) return <CloudRain className={className} />;
+  if (code >= 45) return <CloudFog className={className} />;
+  if (code >= 2) return <Cloud className={className} />;
+  return <Sun className={className} />;
+}
+
+function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void }) {
+  return (
+    <div className="relative rounded-3xl border bg-card p-6">
+      <button onClick={onClose} aria-label="Cerrar clima" className="absolute right-4 top-4 text-muted-foreground hover:text-foreground">
+        <X className="h-4 w-4" />
+      </button>
+      <p className="text-xs text-muted-foreground">Clima de hoy</p>
+      <h2 className="text-lg font-semibold">
+        {w.city}
+        {w.region && <span className="font-normal text-muted-foreground"> · {w.region}</span>}
+      </h2>
+      <div className="mt-4 flex items-center gap-5">
+        <WeatherIcon code={w.code} className="h-14 w-14 text-primary" />
+        <div>
+          <p className="font-display text-5xl font-bold tabular-nums leading-none">{w.temp}°</p>
+          <p className="mt-1 text-sm text-muted-foreground">{w.condition}</p>
+        </div>
+        <div className="ml-auto space-y-1 text-right text-sm tabular-nums">
+          <p>Máx {w.max}° · Mín {w.min}°</p>
+          <p className="flex items-center justify-end gap-1 text-muted-foreground"><Droplets className="h-3.5 w-3.5" /> {w.rainChance ?? "–"}% lluvia · {w.humidity}% hum.</p>
+          <p className="flex items-center justify-end gap-1 text-muted-foreground"><Wind className="h-3.5 w-3.5" /> {w.wind} km/h</p>
+        </div>
+      </div>
     </div>
   );
 }
