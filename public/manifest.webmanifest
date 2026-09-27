@@ -1,0 +1,9 @@
+{
+  "name": "Atento",
+  "short_name": "Atento",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1a14",
+  "theme_color": "#0f1a14",
+  "icons": [{ "src": "/favicon.ico", "sizes": "64x64", "type": "image/x-icon" }]
+}

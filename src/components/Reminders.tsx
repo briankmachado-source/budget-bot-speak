@@ -1,12 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellRing, Check, RotateCcw, Trash2 } from "lucide-react";
+import { Bell, BellRing, Check, RotateCcw, Smartphone, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { currentSubscription, disablePush, enablePush, pushSupported } from "@/lib/push";
 
 type Reminder = { id: string; title: string; remind_at: string; done: boolean; notified: boolean };
+
+function PhoneToggle() {
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (pushSupported()) void currentSubscription().then((s) => setOn(!!s)).catch(() => {});
+  }, []);
+  async function toggle() {
+    setBusy(true);
+    try {
+      if (on) { await disablePush(); setOn(false); toast("Avisos al teléfono desactivados"); }
+      else { await enablePush(); setOn(true); toast.success("Listo: te llegará un aviso a este dispositivo"); }
+    } catch (e) {
+      toast.error((e as Error).message || "No se pudieron activar los avisos. Abre la app en una pestaña propia.");
+    } finally { setBusy(false); }
+  }
+  return (
+    <Button variant={on ? "secondary" : "outline"} size="sm" onClick={toggle} disabled={busy}>
+      <Smartphone className="mr-1 h-4 w-4" /> {on ? "Avisos activos" : "Avisar al teléfono"}
+    </Button>
+  );
+}
 
 function beep() {
   try {
@@ -103,7 +126,10 @@ export function Reminders() {
         </div>
       )}
       <div className="rounded-3xl border bg-card p-6">
-        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold"><Bell className="h-5 w-5" /> Recordatorios</h2>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold"><Bell className="h-5 w-5" /> Recordatorios</h2>
+          <PhoneToggle />
+        </div>
         {pending.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sin pendientes. Di "Atento, recuérdame mañana a las 8:30…"</p>
         ) : (

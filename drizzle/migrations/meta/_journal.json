@@ -15,6 +15,13 @@
       "when": 1790454606790,
       "tag": "0001_create_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790475067700,
+      "tag": "0002_push_notifications",
+      "breakpoints": true
     }
   ]
 }
