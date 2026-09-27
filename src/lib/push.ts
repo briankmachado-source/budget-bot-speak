@@ -30,7 +30,7 @@ export async function enablePush() {
   const { data: u } = await supabase.auth.getUser();
   if (!u.user) throw new Error("Inicia sesión primero.");
   const { error } = await supabase.from("push_subscriptions").upsert(
-    { user_id: u.user.id, endpoint: sub.endpoint, p256dh: j.keys!.p256dh!, auth: j.keys!.auth! },
+    { user_id: u.user.id, endpoint: sub.endpoint, p256dh: j.keys!["p256dh"]!, auth: j.keys!["auth"]! },
     { onConflict: "endpoint" },
   );
   if (error) throw new Error("No se pudo guardar el dispositivo.");
