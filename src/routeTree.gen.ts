@@ -10,33 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiPublicReminderPushRouteImport } from './routes/api/public/reminder-push'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicReminderPushRoute = ApiPublicReminderPushRouteImport.update({
+  id: '/api/public/reminder-push',
+  path: '/api/public/reminder-push',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/public/reminder-push': typeof ApiPublicReminderPushRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/public/reminder-push': typeof ApiPublicReminderPushRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/public/reminder-push': typeof ApiPublicReminderPushRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/api/public/reminder-push'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/public/reminder-push'
+  id: '__root__' | '/' | '/api/public/reminder-push'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiPublicReminderPushRoute: typeof ApiPublicReminderPushRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +58,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/reminder-push': {
+      id: '/api/public/reminder-push'
+      path: '/api/public/reminder-push'
+      fullPath: '/api/public/reminder-push'
+      preLoaderRoute: typeof ApiPublicReminderPushRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiPublicReminderPushRoute: ApiPublicReminderPushRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
