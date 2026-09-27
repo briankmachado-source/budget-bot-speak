@@ -45,7 +45,7 @@ export const Route = createFileRoute("/api/public/reminder-push")({
             try {
               const payload = await buildPushPayload(
                 {
-                  data: JSON.stringify({ title: "⏰ Atento", body: r.title, url: `${origin}/?reminder=${r.id}`, tag: r.id }),
+                  data: JSON.stringify({ title: "⏰ Atento AI", body: r.title, url: `${origin}/?reminder=${r.id}`, tag: r.id }),
                   options: { ttl: 3600, urgency: "high" },
                 },
                 { endpoint: s.endpoint, expirationTime: null, keys: { p256dh: s.p256dh, auth: s.auth } },

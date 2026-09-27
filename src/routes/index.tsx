@@ -8,9 +8,9 @@ import { Dashboard } from "@/components/Dashboard";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Atento — Asistente de voz para tus finanzas" },
+      { title: "Atento AI — Asistente de voz para tus finanzas" },
       { name: "description", content: "Registra gastos e ingresos con tu voz y mira tus finanzas organizadas al instante." },
-      { property: "og:title", content: "Atento — Asistente de voz para tus finanzas" },
+      { property: "og:title", content: "Atento AI — Asistente de voz para tus finanzas" },
       { property: "og:description", content: "Registra gastos e ingresos con tu voz y mira tus finanzas organizadas al instante." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

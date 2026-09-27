@@ -131,7 +131,7 @@ export function Reminders() {
           <PhoneToggle />
         </div>
         {pending.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin pendientes. Di "Atento, recuérdame mañana a las 8:30…"</p>
+          <p className="text-sm text-muted-foreground">Sin pendientes. Di "Atento AI, recuérdame mañana a las 8:30…"</p>
         ) : (
           <ul className="divide-y divide-border">
             {pending.map((r) => {

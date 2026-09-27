@@ -84,7 +84,7 @@ export function Dashboard({ email }: { email: string }) {
 
   const statusLabel = {
     idle: "Toca el micrófono para activarme",
-    listening: 'Escuchando… di "Hola" o "Atento" y tu comando',
+    listening: 'Escuchando… di "Hola" o "Atento AI" y tu comando',
     processing: "Procesando…",
     speaking: "Respondiendo…",
     unsupported: "Tu navegador no soporta voz. Usa Chrome o escribe abajo.",
@@ -98,7 +98,7 @@ export function Dashboard({ email }: { email: string }) {
             <Mic className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold leading-none">Atento</h1>
+            <h1 className="text-2xl font-bold leading-none">Atento AI</h1>
             <p className="text-xs text-muted-foreground">{email}</p>
           </div>
         </div>
@@ -135,7 +135,7 @@ export function Dashboard({ email }: { email: string }) {
             {log.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 Prueba: <span className="text-foreground">"Hola, registra pago por 400 mil de verduras"</span> o{" "}
-                <span className="text-foreground">"Atento, ¿cuánto he gastado este mes?"</span> o{" "}<span className="text-foreground">"Hola, ¿cómo está el clima en Barranquilla?"</span>
+                <span className="text-foreground">"Atento AI, ¿cuánto he gastado este mes?"</span> o{" "}<span className="text-foreground">"Hola, ¿cómo está el clima en Barranquilla?"</span>
               </p>
             )}
             {log.map((m, i) => (

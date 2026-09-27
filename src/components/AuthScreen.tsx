@@ -48,7 +48,7 @@ export function AuthScreen() {
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <Mic className="h-7 w-7" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">Atento</h1>
+          <h1 className="text-4xl font-bold tracking-tight">Atento AI</h1>
           <p className="mt-2 text-muted-foreground">Tus finanzas, a un comando de voz.</p>
         </div>
         <div className="rounded-2xl border bg-card p-6">
