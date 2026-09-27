@@ -5,13 +5,13 @@ self.addEventListener("push", (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data && event.data.text() }; }
   event.waitUntil(
-    self.registration.showNotification(d.title || "Atento", {
+    self.registration.showNotification(d.title || "Atento AI", {
       body: d.body || "Tienes un recordatorio",
       tag: d.tag,
       requireInteraction: true,
       vibrate: [200, 100, 200, 100, 200],
       data: { url: d.url || "/" },
-      actions: [{ action: "open", title: "Abrir Atento" }],
+      actions: [{ action: "open", title: "Abrir Atento AI" }],
     }),
   );
 });

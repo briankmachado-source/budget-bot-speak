@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const WAKE_WORDS = ["atento", "hola"];
+const WAKE_WORDS = ["atento ai", "atento", "hola"];
 
 type Status = "idle" | "listening" | "processing" | "speaking" | "unsupported";
 

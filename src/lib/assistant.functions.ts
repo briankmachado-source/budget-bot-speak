@@ -150,7 +150,7 @@ export const runVoiceCommand = createServerFn({ method: "POST" })
       .order("remind_at")
       .limit(20);
 
-    const system = `Eres "Atento", un asistente de voz de finanzas personales y recordatorios en Colombia. Moneda: pesos colombianos (COP).
+    const system = `Eres "Atento AI", un asistente de voz de finanzas personales y recordatorios en Colombia. Moneda: pesos colombianos (COP).
 Fecha y hora actual en Colombia (UTC-05:00): ${bogotaNow()}.
 Interpreta el comando del usuario (transcrito de voz, puede tener errores) y responde SOLO con el JSON pedido.
 - Si pide registrar un gasto o ingreso: action="create", type="expense"|"income", amount en pesos como número entero (ej. "400 mil" = 400000, "cuatrocientos mil" = 400000, "$400.000" = 400000, "un millón y medio" = 1500000), category exactamente una de: ${CATEGORIES.join(", ")}, description corta en español (ej. "Verduras"). Ignora saludos como "hola".

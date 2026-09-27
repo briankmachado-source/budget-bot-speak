@@ -18,7 +18,7 @@ export async function currentSubscription() {
 }
 
 export async function enablePush() {
-  if (!pushSupported()) throw new Error("Este navegador no admite notificaciones. En iPhone, agrega Atento a la pantalla de inicio primero.");
+  if (!pushSupported()) throw new Error("Este navegador no admite notificaciones. En iPhone, agrega Atento AI a la pantalla de inicio primero.");
   const perm = await Notification.requestPermission();
   if (perm !== "granted") throw new Error("Debes permitir las notificaciones.");
   const reg = await navigator.serviceWorker.register("/sw.js");
