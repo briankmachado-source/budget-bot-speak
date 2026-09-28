@@ -107,7 +107,7 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
           const wake = WAKE_WORDS.find((w) => lower.includes(w));
           const isArmed = Date.now() < armedUntilRef.current;
           if ((wake || isArmed) && !busyRef.current) {
-            if (!wake && isArmed) {
+            if (!wake) {
               armedUntilRef.current = 0;
               if (t.length > 2) void handle(t);
               continue;
