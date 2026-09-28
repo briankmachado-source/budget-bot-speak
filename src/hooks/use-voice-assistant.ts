@@ -11,11 +11,35 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
   const [status, setStatus] = useState<Status>("idle");
   const [enabled, setEnabled] = useState(false);
   const [interim, setInterim] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const recRef = useRef<AnyRecognition>(null);
   const enabledRef = useRef(false);
   const busyRef = useRef(false);
+  const activeRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armedUntilRef = useRef(0);
   const cmdRef = useRef(onCommand);
   cmdRef.current = onCommand;
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = null;
+  }, []);
+
+  const startListening = useCallback((delay = 0) => {
+    clearRestartTimer();
+    if (!enabledRef.current || busyRef.current) return;
+    restartTimerRef.current = setTimeout(() => {
+      restartTimerRef.current = null;
+      if (!enabledRef.current || busyRef.current || activeRef.current) return;
+      try {
+        recRef.current?.start();
+      } catch {
+        activeRef.current = false;
+        startListening(400);
+      }
+    }, delay);
+  }, [clearRestartTimer]);
 
   const speak = useCallback((text: string) => {
     return new Promise<void>((resolve) => {
@@ -36,7 +60,9 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
   const handle = useCallback(
     async (text: string) => {
       busyRef.current = true;
+      armedUntilRef.current = 0;
       setStatus("processing");
+      setInterim("");
       try {
         recRef.current?.stop();
       } catch {}
@@ -47,14 +73,10 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       } finally {
         busyRef.current = false;
         setStatus(enabledRef.current ? "listening" : "idle");
-        if (enabledRef.current) {
-          try {
-            recRef.current?.start();
-          } catch {}
-        }
+        startListening(250);
       }
     },
-    [speak],
+    [speak, startListening],
   );
 
   useEffect(() => {
@@ -69,6 +91,11 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
     rec.lang = "es-CO";
     rec.continuous = true;
     rec.interimResults = true;
+    rec.onstart = () => {
+      activeRef.current = true;
+      setError(null);
+      if (enabledRef.current && !busyRef.current) setStatus("listening");
+    };
     rec.onresult = (e: AnyRecognition) => {
       let partial = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -78,37 +105,52 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
           setInterim("");
           const lower = t.toLowerCase();
           const wake = WAKE_WORDS.find((w) => lower.includes(w));
-          if (wake && !busyRef.current) {
+          const isArmed = Date.now() < armedUntilRef.current;
+          if ((wake || isArmed) && !busyRef.current) {
+            if (!wake && isArmed) {
+              armedUntilRef.current = 0;
+              if (t.length > 2) void handle(t);
+              continue;
+            }
             const rest = t.slice(lower.indexOf(wake) + wake.length).replace(/^[\s,.]+/, "");
             if (rest.length > 2) void handle(rest);
-            else void speak("Te escucho.");
+            else {
+              armedUntilRef.current = Date.now() + 10_000;
+              setInterim("Te escucho…");
+            }
           }
         } else partial += t;
       }
       if (partial) setInterim(partial);
     };
     rec.onend = () => {
-      if (enabledRef.current && !busyRef.current) {
-        try {
-          rec.start();
-        } catch {}
-      }
+      activeRef.current = false;
+      startListening(300);
     };
     rec.onerror = (e: AnyRecognition) => {
+      activeRef.current = false;
       if (e.error === "not-allowed") {
         enabledRef.current = false;
         setEnabled(false);
         setStatus("idle");
+        setError("El micrófono está bloqueado. Permite su uso en el navegador y vuelve a tocarlo.");
+        clearRestartTimer();
+        return;
       }
+      if (e.error === "audio-capture") {
+        setError("No pude acceder al micrófono. Revisa que no esté siendo usado por otra aplicación.");
+      }
+      if (e.error !== "aborted") startListening(600);
     };
     recRef.current = rec;
     return () => {
       enabledRef.current = false;
+      clearRestartTimer();
       try {
         rec.stop();
       } catch {}
     };
-  }, [handle, speak]);
+  }, [clearRestartTimer, handle, startListening]);
 
   const toggle = useCallback(() => {
     const rec = recRef.current;
@@ -117,6 +159,8 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       enabledRef.current = false;
       setEnabled(false);
       setStatus("idle");
+      setInterim("");
+      clearRestartTimer();
       try {
         rec.stop();
       } catch {}
@@ -124,11 +168,10 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       enabledRef.current = true;
       setEnabled(true);
       setStatus("listening");
-      try {
-        rec.start();
-      } catch {}
+      setError(null);
+      startListening();
     }
-  }, []);
+  }, [clearRestartTimer, startListening]);
 
-  return { status, enabled, interim, toggle, sendText: handle };
+  return { status, enabled, interim, error, toggle, sendText: handle };
 }

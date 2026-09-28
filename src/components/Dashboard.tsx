@@ -128,6 +128,7 @@ export function Dashboard({ email }: { email: string }) {
               </span>
             </button>
             <p className="mt-5 text-center text-sm text-muted-foreground">{statusLabel}</p>
+            {voice.error && <p className="mt-2 max-w-sm text-center text-sm text-destructive">{voice.error}</p>}
             {voice.interim && <p className="mt-2 text-center text-base italic">"{voice.interim}"</p>}
           </div>
 

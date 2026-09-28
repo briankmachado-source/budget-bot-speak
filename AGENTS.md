@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Keep voice recognition continuously active after user activation, automatically recovering from browser silence or interruption, because voice is the app's primary interaction.
