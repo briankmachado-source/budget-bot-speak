@@ -2,7 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { getWeather, type Weather } from "./weather.server";
-export type { Weather };
+import { searchSong, type Song } from "./youtube.server";
+export type { Weather, Song };
+
 
 export const CATEGORIES = [
   "Mercado",
