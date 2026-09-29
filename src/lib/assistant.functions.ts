@@ -22,32 +22,37 @@ export const CATEGORIES = [
   "Otros",
 ];
 
+const ACTIONS = ["create", "query", "weather", "remind", "song", "music_stop", "unknown"] as const;
+
 const resultSchema = z.object({
-  action: z.enum(["create", "query", "weather", "remind", "unknown"]),
+  action: z.enum(ACTIONS),
   type: z.enum(["expense", "income"]).nullable(),
   amount: z.number().nullable(),
   category: z.string().nullable(),
   description: z.string().nullable(),
   city: z.string().nullable(),
   remind_at: z.string().nullable(),
+  song_query: z.string().nullable(),
   reply: z.string(),
 });
 
 const jsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["action", "type", "amount", "category", "description", "city", "remind_at", "reply"],
+  required: ["action", "type", "amount", "category", "description", "city", "remind_at", "song_query", "reply"],
   properties: {
-    action: { type: "string", enum: ["create", "query", "weather", "remind", "unknown"] },
+    action: { type: "string", enum: [...ACTIONS] },
     type: { type: ["string", "null"], enum: ["expense", "income", null] },
     amount: { type: ["number", "null"] },
     category: { type: ["string", "null"] },
     description: { type: ["string", "null"] },
     city: { type: ["string", "null"] },
     remind_at: { type: ["string", "null"] },
+    song_query: { type: ["string", "null"] },
     reply: { type: "string" },
   },
 };
+
 
 
 function bogotaNow() {
