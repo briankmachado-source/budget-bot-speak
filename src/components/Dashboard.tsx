@@ -307,3 +307,57 @@ function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void }) {
     </div>
   );
 }
+
+function MusicPlayer({ song, onClose }: { song: Song; onClose: () => void }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [playing, setPlaying] = useState(true);
+
+  function command(func: "playVideo" | "pauseVideo") {
+    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl border bg-card">
+      <button
+        onClick={onClose}
+        aria-label="Cerrar música"
+        className="absolute right-4 top-4 z-10 rounded-full bg-background/80 p-1.5 text-muted-foreground hover:text-foreground"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <div className="aspect-video w-full bg-black">
+        <iframe
+          ref={frame}
+          key={song.videoId}
+          className="h-full w-full"
+          src={`https://www.youtube-nocookie.com/embed/${song.videoId}?autoplay=1&enablejsapi=1&rel=0`}
+          title={song.title}
+          allow="accelerometer; autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+        />
+      </div>
+      <div className="flex items-center gap-3 p-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+          <Music className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{song.title}</p>
+          <p className="truncate text-xs text-muted-foreground">{song.channel}</p>
+        </div>
+        <Button
+          size="icon"
+          variant="secondary"
+          aria-label={playing ? "Pausar" : "Reproducir"}
+          onClick={() => {
+            command(playing ? "pauseVideo" : "playVideo");
+            setPlaying((p) => !p);
+          }}
+        >
+          {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+}
