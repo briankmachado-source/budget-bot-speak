@@ -26,20 +26,32 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
     restartTimerRef.current = null;
   }, []);
 
-  const startListening = useCallback((delay = 0) => {
-    clearRestartTimer();
-    if (!enabledRef.current || busyRef.current) return;
-    restartTimerRef.current = setTimeout(() => {
-      restartTimerRef.current = null;
-      if (!enabledRef.current || busyRef.current || activeRef.current) return;
-      try {
-        recRef.current?.start();
-      } catch {
-        activeRef.current = false;
-        startListening(400);
-      }
-    }, delay);
-  }, [clearRestartTimer]);
+  const startListening = useCallback(
+    (delay = 0) => {
+      clearRestartTimer();
+      if (!enabledRef.current || busyRef.current) return;
+
+      const run = () => {
+        if (!enabledRef.current || busyRef.current) return;
+
+        const rec = recRef.current;
+        if (!rec) return;
+
+        const alreadyListening = activeRef.current || rec.state === "listening";
+        if (alreadyListening) return;
+
+        try {
+          rec.start();
+        } catch {
+          activeRef.current = false;
+          restartTimerRef.current = setTimeout(() => startListening(400), 400);
+        }
+      };
+
+      restartTimerRef.current = setTimeout(run, delay);
+    },
+    [clearRestartTimer],
+  );
 
   const speak = useCallback((text: string) => {
     return new Promise<void>((resolve) => {
@@ -49,7 +61,7 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       u.lang = "es-CO";
       const voice = window.speechSynthesis
         .getVoices()
-        .find((v) => v.lang.startsWith("es"));
+        .find((v) => v.lang.toLowerCase().startsWith("es"));
       if (voice) u.voice = voice;
       u.onend = () => resolve();
       u.onerror = () => resolve();
@@ -63,9 +75,11 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       armedUntilRef.current = 0;
       setStatus("processing");
       setInterim("");
+
       try {
         recRef.current?.stop();
       } catch {}
+
       try {
         const reply = await cmdRef.current(text);
         setStatus("speaking");
@@ -80,69 +94,107 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
   );
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     const SR =
       (window as AnyRecognition).SpeechRecognition ||
       (window as AnyRecognition).webkitSpeechRecognition;
+
+    const isSecureContext =
+      window.isSecureContext ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+
     if (!SR) {
       setStatus("unsupported");
+      setError("Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.");
       return;
     }
+
+    if (!isSecureContext) {
+      setStatus("idle");
+      setError("El reconocimiento de voz solo funciona en HTTPS o localhost.");
+      return;
+    }
+
     const rec = new SR();
     rec.lang = "es-CO";
     rec.continuous = true;
     rec.interimResults = true;
+
     rec.onstart = () => {
       activeRef.current = true;
       setError(null);
       if (enabledRef.current && !busyRef.current) setStatus("listening");
     };
+
     rec.onresult = (e: AnyRecognition) => {
       let partial = "";
+
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         const t = r[0].transcript.trim();
+
         if (r.isFinal) {
           setInterim("");
           const lower = t.toLowerCase();
           const wake = WAKE_WORDS.find((w) => lower.includes(w));
           const isArmed = Date.now() < armedUntilRef.current;
+
           if ((wake || isArmed) && !busyRef.current) {
             if (!wake) {
               armedUntilRef.current = 0;
               if (t.length > 2) void handle(t);
               continue;
             }
+
             const rest = t.slice(lower.indexOf(wake) + wake.length).replace(/^[\s,.]+/, "");
-            if (rest.length > 2) void handle(rest);
-            else {
+
+            if (rest.length > 2) {
+              void handle(rest);
+            } else {
               armedUntilRef.current = Date.now() + 10_000;
               setInterim("Te escucho…");
             }
           }
-        } else partial += t;
+        } else {
+          partial += t;
+        }
       }
+
       if (partial) setInterim(partial);
     };
+
     rec.onend = () => {
       activeRef.current = false;
-      startListening(300);
+      if (enabledRef.current && !busyRef.current) {
+        startListening(300);
+      }
     };
+
     rec.onerror = (e: AnyRecognition) => {
       activeRef.current = false;
-      if (e.error === "not-allowed") {
+
+      if (["not-allowed", "service-not-allowed"].includes(e.error)) {
         enabledRef.current = false;
         setEnabled(false);
         setStatus("idle");
-        setError("El micrófono está bloqueado. Permite su uso en el navegador y vuelve a tocarlo.");
+        setError("El micrófono está bloqueado. Permite su uso en el navegador y vuelve a intentarlo.");
         clearRestartTimer();
         return;
       }
-      if (e.error === "audio-capture") {
-        setError("No pude acceder al micrófono. Revisa que no esté siendo usado por otra aplicación.");
+
+      if (["audio-capture", "network", "no-speech"].includes(e.error)) {
+        setError("No pude capturar tu voz. Revisa el micrófono y vuelve a intentarlo.");
       }
-      if (e.error !== "aborted") startListening(600);
+
+      if (e.error !== "aborted" && enabledRef.current && !busyRef.current) {
+        startListening(800);
+      }
     };
+
     recRef.current = rec;
+
     return () => {
       enabledRef.current = false;
       clearRestartTimer();
@@ -155,6 +207,7 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
   const toggle = useCallback(() => {
     const rec = recRef.current;
     if (!rec) return;
+
     if (enabledRef.current) {
       enabledRef.current = false;
       setEnabled(false);
@@ -164,13 +217,14 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       try {
         rec.stop();
       } catch {}
-    } else {
-      enabledRef.current = true;
-      setEnabled(true);
-      setStatus("listening");
-      setError(null);
-      startListening();
+      return;
     }
+
+    enabledRef.current = true;
+    setEnabled(true);
+    setStatus("listening");
+    setError(null);
+    startListening();
   }, [clearRestartTimer, startListening]);
 
   return { status, enabled, interim, error, toggle, sendText: handle };
