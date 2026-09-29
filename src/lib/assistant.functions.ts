@@ -22,7 +22,7 @@ export const CATEGORIES = [
   "Otros",
 ];
 
-const ACTIONS = ["create", "query", "weather", "remind", "song", "music_stop", "unknown"] as const;
+const ACTIONS = ["create", "query", "weather", "remind", "song", "music_stop", "answer", "unknown"] as const;
 
 const resultSchema = z.object({
   action: z.enum(ACTIONS),
@@ -166,9 +166,10 @@ Interpreta el comando del usuario (transcrito de voz, puede tener errores) y res
 - Si pregunta por el clima o el pronóstico: action="weather", city = nombre de la ciudad mencionada (ej. "Barranquilla") o null si no menciona ninguna. reply puede ser "".
 - Si pide poner, reproducir o buscar música o una canción ("pon...", "reproduce...", "quiero escuchar..."): action="song", song_query = nombre de la canción y artista tal como lo dijo (ej. "Vivir mi vida Marc Anthony"). Si solo dice un género o estado de ánimo, usa eso (ej. "música relajante"). reply puede ser "".
 - Si pide detener, parar, apagar o quitar la música: action="music_stop" y reply corto (ej. "Listo, apagué la música.").
+- Si hace cualquier otra pregunta o conversación general (cultura, ciencia, historia, cocina, consejos, cálculos, traducciones, etc.): action="answer" y responde tú mismo en reply con información útil y correcta. Si necesitas datos en tiempo real que no tienes (noticias de hoy, resultados deportivos), dilo con honestidad.
 - Si no entiendes o falta el monto: action="unknown" y pide aclaración.
 - Campos que no aplican a la acción van en null.
-reply: frase corta y natural en español para decir en voz alta, montos escritos como "400 mil pesos". Máximo 2 frases.
+reply: frase natural en español para decir en voz alta, montos escritos como "400 mil pesos", sin markdown ni listas. Máximo 2 frases, salvo en action="answer" que puede tener hasta 5 frases.
 Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance ${income - expense} COP. Gastos por categoría: ${JSON.stringify(byCat)}. Últimos movimientos: ${JSON.stringify((rows ?? []).slice(0, 10))}.
 Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
 
