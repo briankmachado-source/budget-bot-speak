@@ -142,7 +142,7 @@ export function Dashboard({ email }: { email: string }) {
             {log.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 Prueba: <span className="text-foreground">"Hola, registra pago por 400 mil de verduras"</span> o{" "}
-                <span className="text-foreground">"Atento AI, ¿cuánto he gastado este mes?"</span> o{" "}<span className="text-foreground">"Hola, ¿cómo está el clima en Barranquilla?"</span>
+                <span className="text-foreground">"Atento AI, ¿cuánto he gastado este mes?"</span> o{" "}<span className="text-foreground">"Hola, ¿cómo está el clima en Barranquilla?"</span> o{" "}<span className="text-foreground">"Atento AI, pon Vivir mi vida de Marc Anthony"</span>
               </p>
             )}
             {log.map((m, i) => (
