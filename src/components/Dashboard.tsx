@@ -177,7 +177,9 @@ export function Dashboard({ email }: { email: string }) {
 
         {/* Panel */}
         <section className="space-y-6">
+          {song && <MusicPlayer song={song} onClose={() => setSong(null)} />}
           {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
+
           <Reminders />
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Balance del mes" value={stats.balance} highlight />
