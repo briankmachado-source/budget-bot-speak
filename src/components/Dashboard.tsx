@@ -48,7 +48,10 @@ export function Dashboard({ email }: { email: string }) {
       setLog((l) => [...l, { role: "assistant", text: r.reply }]);
       if (r.action === "create") qc.invalidateQueries({ queryKey: ["transactions"] });
       if (r.weather) setWeather(r.weather);
+      if (r.song) setSong(r.song);
+      if (r.stopMusic) setSong(null);
       if (r.action === "remind") { qc.invalidateQueries({ queryKey: ["reminders"] }); toast.success(r.reply); }
+
       return r.reply;
     } catch (e) {
       const m = (e as Error).message || "Algo salió mal.";
