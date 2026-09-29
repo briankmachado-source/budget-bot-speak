@@ -254,3 +254,468 @@ export function useVoiceAssistant(
 
         await speak(reply);
       } catch (e) {
+        if (!mountedRef.current) {
+          return;
+        }
+
+        const message =
+          e instanceof Error
+            ? e.message
+            : "No pude procesar tu comando.";
+
+        setError(message);
+
+        await speak(
+          "No pude procesar eso. Intenta de nuevo.",
+        );
+      } finally {
+        busyRef.current = false;
+
+        if (mountedRef.current) {
+          setStatus(
+            enabledRef.current
+              ? "listening"
+              : "idle",
+          );
+
+          // Volvemos automáticamente a escuchar.
+          if (enabledRef.current) {
+            startListening(300);
+          }
+        }
+      }
+    },
+    [
+      clearInterimTimer,
+      speak,
+      startListening,
+    ],
+  );
+
+  // ------------------------------------------------------------
+  // CONFIGURAR SPEECH RECOGNITION
+  // ------------------------------------------------------------
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    const SR =
+      (window as AnyRecognition).SpeechRecognition ||
+      (window as AnyRecognition)
+        .webkitSpeechRecognition;
+
+    if (!SR) {
+      setStatus("unsupported");
+      return;
+    }
+
+    const rec = new SR();
+
+    rec.lang = "es-CO";
+
+    // Mantener escucha continua.
+    rec.continuous = true;
+
+    // Permitir resultados provisionales.
+    rec.interimResults = true;
+
+    // Solo necesitamos la primera alternativa.
+    rec.maxAlternatives = 1;
+
+    // ----------------------------------------------------------
+    // CUANDO EMPIEZA A ESCUCHAR
+    // ----------------------------------------------------------
+
+    rec.onstart = () => {
+      activeRef.current = true;
+
+      setError(null);
+
+      if (
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        setStatus("listening");
+      }
+    };
+
+    // ----------------------------------------------------------
+    // CUANDO RECIBE VOZ
+    // ----------------------------------------------------------
+
+    rec.onresult = (e: AnyRecognition) => {
+      let partial = "";
+
+      for (
+        let i = e.resultIndex;
+        i < e.results.length;
+        i++
+      ) {
+        const result = e.results[i];
+
+        const transcript =
+          result[0].transcript.trim();
+
+        if (!transcript) {
+          continue;
+        }
+
+        // ------------------------------------------------------
+        // RESULTADO FINAL
+        // ------------------------------------------------------
+
+        if (result.isFinal) {
+          clearInterimTimer();
+
+          setInterim("");
+
+          const lower =
+            transcript.toLowerCase();
+
+          const wake =
+            WAKE_WORDS.find((word) =>
+              lower.includes(word),
+            );
+
+          const isArmed =
+            Date.now() <
+            armedUntilRef.current;
+
+          // Si detectamos palabra de activación o ya estamos
+          // esperando el comando.
+          if (
+            (wake || isArmed) &&
+            !busyRef.current
+          ) {
+            // --------------------------------------------------
+            // YA ESTABA ARMADO
+            // --------------------------------------------------
+
+            if (!wake) {
+              armedUntilRef.current = 0;
+
+              void handle(transcript);
+
+              continue;
+            }
+
+            // --------------------------------------------------
+            // ENCONTRAMOS "HOLA", "ATENTO", ETC.
+            // --------------------------------------------------
+
+            const startIndex =
+              lower.indexOf(wake) +
+              wake.length;
+
+            const rest = transcript
+              .slice(startIndex)
+              .replace(
+                /^[\s,.!?]+/,
+                "",
+              );
+
+            // Si la persona dijo:
+            //
+            // "Hola cuánto dinero tengo"
+            //
+            // procesamos directamente.
+            if (rest.length > 2) {
+              void handle(rest);
+            } else {
+              // Si solamente dijo:
+              //
+              // "Hola"
+              //
+              // esperamos el comando.
+              armedUntilRef.current =
+                Date.now() +
+                ARMED_TIMEOUT_MS;
+
+              setInterim(
+                "Te escucho…",
+              );
+            }
+          }
+        }
+
+        // ------------------------------------------------------
+        // RESULTADO PROVISIONAL
+        // ------------------------------------------------------
+
+        else {
+          partial += `${transcript} `;
+        }
+      }
+
+      partial = partial.trim();
+
+      if (
+        !partial ||
+        busyRef.current
+      ) {
+        return;
+      }
+
+      // Mostrar lo que está entendiendo el asistente.
+      setInterim(partial);
+
+      // Reiniciamos el contador cada vez que llega nuevo audio.
+      clearInterimTimer();
+
+      /*
+       * Algunos navegadores móviles entregan resultados
+       * provisionales durante demasiado tiempo.
+       *
+       * Esperamos 3 segundos SIN nuevo resultado antes de
+       * intentar procesar el comando.
+       */
+      interimTimerRef.current =
+        setTimeout(() => {
+          interimTimerRef.current = null;
+
+          if (
+            busyRef.current ||
+            !enabledRef.current
+          ) {
+            return;
+          }
+
+          const lower =
+            partial.toLowerCase();
+
+          const wake =
+            WAKE_WORDS.find((word) =>
+              lower.includes(word),
+            );
+
+          const isArmed =
+            Date.now() <
+            armedUntilRef.current;
+
+          // Todavía no hay palabra de activación.
+          if (!wake && !isArmed) {
+            return;
+          }
+
+          // ----------------------------------------------------
+          // TIENE PALABRA DE ACTIVACIÓN
+          // ----------------------------------------------------
+
+          if (wake) {
+            const startIndex =
+              lower.indexOf(wake) +
+              wake.length;
+
+            const rest = partial
+              .slice(startIndex)
+              .replace(
+                /^[\s,.!?]+/,
+                "",
+              );
+
+            if (rest.length > 2) {
+              void handle(rest);
+            } else {
+              armedUntilRef.current =
+                Date.now() +
+                ARMED_TIMEOUT_MS;
+
+              setInterim(
+                "Te escucho…",
+              );
+            }
+          }
+
+          // ----------------------------------------------------
+          // YA ESTABA ESPERANDO EL COMANDO
+          // ----------------------------------------------------
+
+          else {
+            armedUntilRef.current = 0;
+
+            void handle(partial);
+          }
+        }, INTERIM_FALLBACK_MS);
+    };
+
+    // ----------------------------------------------------------
+    // CUANDO CHROME DETIENE EL RECONOCIMIENTO
+    // ----------------------------------------------------------
+
+    rec.onend = () => {
+      activeRef.current = false;
+
+      /*
+       * Chrome/Android puede cerrar SpeechRecognition
+       * incluso con continuous=true.
+       *
+       * Si el asistente sigue activado, lo reiniciamos.
+       */
+      if (
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        startListening(400);
+      }
+    };
+
+    // ----------------------------------------------------------
+    // ERRORES
+    // ----------------------------------------------------------
+
+    rec.onerror = (e: AnyRecognition) => {
+      activeRef.current = false;
+
+      // --------------------------------------------------------
+      // MICRÓFONO BLOQUEADO
+      // --------------------------------------------------------
+
+      if (e.error === "not-allowed") {
+        enabledRef.current = false;
+
+        setEnabled(false);
+        setStatus("idle");
+
+        setError(
+          "El micrófono está bloqueado. Permite su uso en el navegador y vuelve a tocarlo.",
+        );
+
+        clearRestartTimer();
+        clearInterimTimer();
+
+        return;
+      }
+
+      // --------------------------------------------------------
+      // PROBLEMA CON EL MICRÓFONO
+      // --------------------------------------------------------
+
+      if (e.error === "audio-capture") {
+        setError(
+          "No pude acceder al micrófono. Revisa que no esté siendo usado por otra aplicación.",
+        );
+      }
+
+      // --------------------------------------------------------
+      // OTROS ERRORES
+      // --------------------------------------------------------
+
+      else if (
+        e.error !== "aborted" &&
+        e.error !== "no-speech"
+      ) {
+        setError(
+          "La escucha se interrumpió. Reintentando…",
+        );
+      }
+
+      // --------------------------------------------------------
+      // RECUPERACIÓN AUTOMÁTICA
+      // --------------------------------------------------------
+
+      if (
+        e.error !== "aborted" &&
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        startListening(
+          e.error === "network"
+            ? 1500
+            : 700,
+        );
+      }
+    };
+
+    recRef.current = rec;
+
+    // ----------------------------------------------------------
+    // LIMPIEZA
+    // ----------------------------------------------------------
+
+    return () => {
+      mountedRef.current = false;
+
+      enabledRef.current = false;
+
+      clearRestartTimer();
+      clearInterimTimer();
+
+      try {
+        rec.stop();
+      } catch {}
+
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {}
+    };
+  }, [
+    clearInterimTimer,
+    clearRestartTimer,
+    handle,
+    startListening,
+  ]);
+
+  // ------------------------------------------------------------
+  // BOTÓN ACTIVAR / DESACTIVAR
+  // ------------------------------------------------------------
+
+  const toggle = useCallback(() => {
+    const rec = recRef.current;
+
+    if (!rec) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // DESACTIVAR
+    // ----------------------------------------------------------
+
+    if (enabledRef.current) {
+      enabledRef.current = false;
+
+      setEnabled(false);
+      setStatus("idle");
+      setInterim("");
+
+      armedUntilRef.current = 0;
+
+      clearRestartTimer();
+      clearInterimTimer();
+
+      try {
+        rec.stop();
+      } catch {}
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // ACTIVAR
+    // ----------------------------------------------------------
+
+    lastCommandRef.current = "";
+
+    enabledRef.current = true;
+
+    setEnabled(true);
+    setStatus("listening");
+    setError(null);
+
+    armedUntilRef.current = 0;
+
+    startListening();
+  }, [
+    clearInterimTimer,
+    clearRestartTimer,
+    startListening,
+  ]);
+
+  return {
+    status,
+    enabled,
+    interim,
+    error,
+    toggle,
+    sendText: handle,
+  };
+}
