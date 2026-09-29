@@ -239,7 +239,7 @@ Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
         .select()
         .single();
       if (error) throw new Error("No pude guardar el registro.");
-      return { ...base, action: "create" as const, reply: parsed.reply, transaction: tx as unknown };
+      return { ...base, action: "create" as const, reply: parsed.reply, transaction: tx as TxRow };
     }
     return { ...base, action: parsed.action, reply: parsed.reply };
 
