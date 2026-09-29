@@ -359,5 +359,3 @@ function MusicPlayer({ song, onClose }: { song: Song; onClose: () => void }) {
     </div>
   );
 }
-
-}
