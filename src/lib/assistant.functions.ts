@@ -164,35 +164,51 @@ Interpreta el comando del usuario (transcrito de voz, puede tener errores) y res
 - Si pide un recordatorio o alarma ("recuérdame...", "ponme una alarma..."): action="remind", description = qué recordar, corto (ej. "Estar en la iglesia"), remind_at = fecha y hora ISO 8601 con offset -05:00 (ej. "2026-09-27T08:30:00-05:00"). Si solo dice un día sin hora, usa las 09:00. "en 2 días" = misma hora dentro de 2 días; "en 10 minutos" = ahora + 10 min. Si no queda claro cuándo, action="unknown" y pregunta.
 - Si pregunta por sus finanzas o sus recordatorios: action="query" y responde con los datos de abajo.
 - Si pregunta por el clima o el pronóstico: action="weather", city = nombre de la ciudad mencionada (ej. "Barranquilla") o null si no menciona ninguna. reply puede ser "".
+- Si pide poner, reproducir o buscar música o una canción ("pon...", "reproduce...", "quiero escuchar..."): action="song", song_query = nombre de la canción y artista tal como lo dijo (ej. "Vivir mi vida Marc Anthony"). Si solo dice un género o estado de ánimo, usa eso (ej. "música relajante"). reply puede ser "".
+- Si pide detener, parar, apagar o quitar la música: action="music_stop" y reply corto (ej. "Listo, apagué la música.").
 - Si no entiendes o falta el monto: action="unknown" y pide aclaración.
 - Campos que no aplican a la acción van en null.
 reply: frase corta y natural en español para decir en voz alta, montos escritos como "400 mil pesos". Máximo 2 frases.
 Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance ${income - expense} COP. Gastos por categoría: ${JSON.stringify(byCat)}. Últimos movimientos: ${JSON.stringify((rows ?? []).slice(0, 10))}.
 Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
 
+    const base = { transaction: null as unknown, weather: null as Weather | null, song: null as Song | null, stopMusic: false };
+
     const raw = await callModel(system, data.text, apiKey);
     let parsed;
     try {
       parsed = resultSchema.parse(JSON.parse(raw));
     } catch {
-      return { action: "unknown" as const, reply: "No te entendí bien, ¿puedes repetirlo?", transaction: null, weather: null };
+      return { ...base, action: "unknown" as const, reply: "No te entendí bien, ¿puedes repetirlo?" };
+    }
+
+    if (parsed.action === "song") {
+      const q = parsed.song_query?.trim();
+      if (!q) return { ...base, action: "unknown" as const, reply: "¿Qué canción quieres escuchar?" };
+      const song = await searchSong(q).catch(() => null);
+      if (!song) return { ...base, action: "unknown" as const, reply: `No encontré "${q}" en YouTube.` };
+      return { ...base, action: "song" as const, reply: `Reproduciendo ${song.title}.`, song };
+    }
+
+    if (parsed.action === "music_stop") {
+      return { ...base, action: "music_stop" as const, reply: parsed.reply || "Listo, apagué la música.", stopMusic: true };
     }
 
     if (parsed.action === "weather") {
       const city = parsed.city?.trim() || DEFAULT_CITY;
       const w = await getWeather(city).catch(() => null);
       if (!w) {
-        return { action: "unknown" as const, reply: `No encontré el clima para ${city}.`, transaction: null, weather: null };
+        return { ...base, action: "unknown" as const, reply: `No encontré el clima para ${city}.` };
       }
       const rain = w.rainChance != null ? ` Probabilidad de lluvia del ${w.rainChance} por ciento.` : "";
       const reply = `En ${w.city} hace ${w.temp} grados, ${w.condition.toLowerCase()}. Hoy entre ${w.min} y ${w.max} grados.${rain}`;
-      return { action: "weather" as const, reply, transaction: null, weather: w };
+      return { ...base, action: "weather" as const, reply, weather: w };
     }
 
     if (parsed.action === "remind") {
       const when = parsed.remind_at ? new Date(parsed.remind_at) : null;
       if (!when || isNaN(when.getTime()) || !parsed.description) {
-        return { action: "unknown" as const, reply: "¿Para cuándo quieres el recordatorio?", transaction: null, weather: null };
+        return { ...base, action: "unknown" as const, reply: "¿Para cuándo quieres el recordatorio?" };
       }
       const { error } = await context.supabase
         .from("reminders")
@@ -201,12 +217,12 @@ Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
       const label = when.toLocaleString("es-CO", {
         timeZone: "America/Bogota", weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit",
       });
-      return { action: "remind" as const, reply: `Listo, te recordaré ${parsed.description.toLowerCase()} el ${label}.`, transaction: null, weather: null };
+      return { ...base, action: "remind" as const, reply: `Listo, te recordaré ${parsed.description.toLowerCase()} el ${label}.` };
     }
 
     if (parsed.action === "create") {
       if (!parsed.amount || parsed.amount <= 0) {
-        return { action: "unknown" as const, reply: "¿Por qué monto quieres registrarlo?", transaction: null, weather: null };
+        return { ...base, action: "unknown" as const, reply: "¿Por qué monto quieres registrarlo?" };
       }
       const category = CATEGORIES.includes(parsed.category ?? "") ? parsed.category! : "Otros";
       const { data: tx, error } = await context.supabase
@@ -221,7 +237,8 @@ Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
         .select()
         .single();
       if (error) throw new Error("No pude guardar el registro.");
-      return { action: "create" as const, reply: parsed.reply, transaction: tx, weather: null };
+      return { ...base, action: "create" as const, reply: parsed.reply, transaction: tx as unknown };
     }
-    return { action: parsed.action, reply: parsed.reply, transaction: null, weather: null };
+    return { ...base, action: parsed.action, reply: parsed.reply };
+
   });
