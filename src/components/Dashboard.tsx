@@ -25,6 +25,8 @@ export function Dashboard({ email }: { email: string }) {
   const [log, setLog] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [weather, setWeather] = useState<Weather | null>(null);
+  const [song, setSong] = useState<Song | null>(null);
+
 
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions"],
