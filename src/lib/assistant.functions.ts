@@ -172,7 +172,9 @@ reply: frase corta y natural en español para decir en voz alta, montos escritos
 Resumen del mes actual: ingresos ${income} COP, gastos ${expense} COP, balance ${income - expense} COP. Gastos por categoría: ${JSON.stringify(byCat)}. Últimos movimientos: ${JSON.stringify((rows ?? []).slice(0, 10))}.
 Recordatorios pendientes: ${JSON.stringify(pending ?? [])}.`;
 
-    const base = { transaction: null as unknown, weather: null as Weather | null, song: null as Song | null, stopMusic: false };
+    type TxRow = { id: string; type: string; amount: number; category: string; description: string | null; occurred_at: string };
+    const base = { transaction: null as TxRow | null, weather: null as Weather | null, song: null as Song | null, stopMusic: false };
+
 
     const raw = await callModel(system, data.text, apiKey);
     let parsed;
