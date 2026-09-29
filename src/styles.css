@@ -153,3 +153,6 @@
 
 @keyframes orb-pulse { 0%,100% { transform: scale(1); opacity: .55 } 50% { transform: scale(1.18); opacity: .15 } }
 .orb-ring { animation: orb-pulse 2.2s ease-in-out infinite; }
+#lovable-badge {
+  display: none !important;
+}
