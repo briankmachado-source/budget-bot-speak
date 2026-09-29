@@ -1,16 +1,17 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind } from "lucide-react";
+import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind, Play, Pause, Music } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { runVoiceCommand, type Weather } from "@/lib/assistant.functions";
+import { runVoiceCommand, type Weather, type Song } from "@/lib/assistant.functions";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { Button } from "@/components/ui/button";
 import { Reminders } from "@/components/Reminders";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
 
 const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
