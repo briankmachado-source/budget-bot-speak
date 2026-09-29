@@ -309,3 +309,264 @@ export function useVoiceAssistant(
         !busyRef.current
       ) {
         setStatus("listening");
+      }
+    };
+
+    // ----------------------------------------------------------
+    // RECIBE VOZ
+    // ----------------------------------------------------------
+
+    rec.onresult = (e: AnyRecognition) => {
+      let finalText = "";
+      let interimText = "";
+
+      for (
+        let i = e.resultIndex;
+        i < e.results.length;
+        i++
+      ) {
+        const result = e.results[i];
+
+        const transcript =
+          result[0].transcript.trim();
+
+        if (!transcript) {
+          continue;
+        }
+
+        if (result.isFinal) {
+          finalText += `${transcript} `;
+        } else {
+          interimText += `${transcript} `;
+        }
+      }
+
+      finalText = finalText.trim();
+      interimText = interimText.trim();
+
+      // --------------------------------------------------------
+      // SI HAY TEXTO FINAL
+      // --------------------------------------------------------
+
+      if (finalText) {
+        clearSilenceTimer();
+
+        setInterim(finalText);
+
+        /*
+         * No procesamos inmediatamente.
+         *
+         * Esperamos 3 segundos para darle tiempo a la persona
+         * de continuar hablando.
+         */
+
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+
+          if (
+            busyRef.current ||
+            !enabledRef.current
+          ) {
+            return;
+          }
+
+          const command = finalText.trim();
+
+          if (command.length > 2) {
+            void handle(command);
+          }
+        }, SILENCE_DELAY_MS);
+
+        return;
+      }
+
+      // --------------------------------------------------------
+      // RESULTADO PROVISIONAL
+      // --------------------------------------------------------
+
+      if (interimText) {
+        setInterim(interimText);
+
+        clearSilenceTimer();
+
+        /*
+         * Reiniciamos el temporizador cada vez que la persona
+         * sigue hablando.
+         *
+         * Mientras continúe hablando, no se procesa.
+         */
+
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+
+          if (
+            busyRef.current ||
+            !enabledRef.current
+          ) {
+            return;
+          }
+
+          const command = interimText.trim();
+
+          if (command.length > 2) {
+            void handle(command);
+          }
+        }, SILENCE_DELAY_MS);
+      }
+    };
+
+    // ----------------------------------------------------------
+    // CHROME DETUVO EL RECONOCIMIENTO
+    // ----------------------------------------------------------
+
+    rec.onend = () => {
+      activeRef.current = false;
+
+      if (
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        startListening(400);
+      }
+    };
+
+    // ----------------------------------------------------------
+    // ERRORES
+    // ----------------------------------------------------------
+
+    rec.onerror = (e: AnyRecognition) => {
+      activeRef.current = false;
+
+      if (e.error === "not-allowed") {
+        enabledRef.current = false;
+
+        setEnabled(false);
+        setStatus("idle");
+
+        setError(
+          "El micrófono está bloqueado. Permite su uso en el navegador y vuelve a activarlo.",
+        );
+
+        clearRestartTimer();
+        clearSilenceTimer();
+
+        return;
+      }
+
+      if (e.error === "audio-capture") {
+        setError(
+          "No pude acceder al micrófono. Revisa que no esté siendo usado por otra aplicación.",
+        );
+      } else if (
+        e.error !== "aborted" &&
+        e.error !== "no-speech"
+      ) {
+        setError(
+          "La escucha se interrumpió. Reintentando…",
+        );
+      }
+
+      if (
+        e.error !== "aborted" &&
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        startListening(
+          e.error === "network"
+            ? 1500
+            : 700,
+        );
+      }
+    };
+
+    recRef.current = rec;
+
+    // ----------------------------------------------------------
+    // LIMPIEZA
+    // ----------------------------------------------------------
+
+    return () => {
+      mountedRef.current = false;
+
+      enabledRef.current = false;
+
+      clearRestartTimer();
+      clearSilenceTimer();
+
+      try {
+        rec.stop();
+      } catch {}
+
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {}
+    };
+  }, [
+    clearRestartTimer,
+    clearSilenceTimer,
+    handle,
+    startListening,
+  ]);
+
+  // ------------------------------------------------------------
+  // ACTIVAR / DESACTIVAR
+  // ------------------------------------------------------------
+
+  const toggle = useCallback(() => {
+    const rec = recRef.current;
+
+    if (!rec) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // DESACTIVAR
+    // ----------------------------------------------------------
+
+    if (enabledRef.current) {
+      enabledRef.current = false;
+
+      setEnabled(false);
+      setStatus("idle");
+      setInterim("");
+
+      clearRestartTimer();
+      clearSilenceTimer();
+
+      try {
+        rec.stop();
+      } catch {}
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // ACTIVAR
+    // ----------------------------------------------------------
+
+    lastCommandRef.current = "";
+
+    enabledRef.current = true;
+
+    setEnabled(true);
+    setStatus("listening");
+    setError(null);
+
+    clearSilenceTimer();
+
+    startListening();
+  }, [
+    clearRestartTimer,
+    clearSilenceTimer,
+    startListening,
+  ]);
+
+  return {
+    status,
+    enabled,
+    interim,
+    error,
+    toggle,
+    sendText: handle,
+  };
+}
