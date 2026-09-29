@@ -2,77 +2,173 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const WAKE_WORDS = ["atento ai", "atento", "hola"];
 
-type Status = "idle" | "listening" | "processing" | "speaking" | "unsupported";
+const COMMAND_TIMEOUT_MS = 20_000;
+const SPEECH_TIMEOUT_MS = 15_000;
+const INTERIM_FALLBACK_MS = 1_100;
+
+type Status =
+  | "idle"
+  | "listening"
+  | "processing"
+  | "speaking"
+  | "unsupported";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecognition = any;
 
-export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) {
+export function useVoiceAssistant(
+  onCommand: (text: string) => Promise<string>,
+) {
   const [status, setStatus] = useState<Status>("idle");
   const [enabled, setEnabled] = useState(false);
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
+
   const recRef = useRef<AnyRecognition>(null);
+
   const enabledRef = useRef(false);
   const busyRef = useRef(false);
   const activeRef = useRef(false);
-  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  const restartTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const interimTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const armedUntilRef = useRef(0);
+  const lastCommandRef = useRef("");
+
   const cmdRef = useRef(onCommand);
   cmdRef.current = onCommand;
 
   const clearRestartTimer = useCallback(() => {
-    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+    }
+
     restartTimerRef.current = null;
+  }, []);
+
+  const clearInterimTimer = useCallback(() => {
+    if (interimTimerRef.current) {
+      clearTimeout(interimTimerRef.current);
+    }
+
+    interimTimerRef.current = null;
   }, []);
 
   const startListening = useCallback(
     (delay = 0) => {
       clearRestartTimer();
-      if (!enabledRef.current || busyRef.current) return;
 
-      const run = () => {
-        if (!enabledRef.current || busyRef.current) return;
+      if (
+        !enabledRef.current ||
+        busyRef.current ||
+        !mountedRef.current
+      ) {
+        return;
+      }
 
-        const rec = recRef.current;
-        if (!rec) return;
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
 
-        const alreadyListening = activeRef.current || rec.state === "listening";
-        if (alreadyListening) return;
+        if (
+          !enabledRef.current ||
+          busyRef.current ||
+          activeRef.current ||
+          !mountedRef.current
+        ) {
+          return;
+        }
 
         try {
-          rec.start();
+          recRef.current?.start();
         } catch {
           activeRef.current = false;
-          restartTimerRef.current = setTimeout(() => startListening(400), 400);
+          startListening(700);
         }
-      };
-
-      restartTimerRef.current = setTimeout(run, delay);
+      }, delay);
     },
     [clearRestartTimer],
   );
 
-  const speak = useCallback((text: string) => {
-    return new Promise<void>((resolve) => {
-      if (typeof window === "undefined" || !window.speechSynthesis) return resolve();
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "es-CO";
-      const voice = window.speechSynthesis
-        .getVoices()
-        .find((v) => v.lang.toLowerCase().startsWith("es"));
-      if (voice) u.voice = voice;
-      u.onend = () => resolve();
-      u.onerror = () => resolve();
-      window.speechSynthesis.speak(u);
-    });
-  }, []);
+  const speak = useCallback(
+    (text: string) =>
+      new Promise<void>((resolve) => {
+        if (
+          typeof window === "undefined" ||
+          !window.speechSynthesis
+        ) {
+          resolve();
+          return;
+        }
+
+        window.speechSynthesis.cancel();
+
+        let settled = false;
+
+        const finish = () => {
+          if (settled) return;
+
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        };
+
+        const timeout = setTimeout(
+          finish,
+          SPEECH_TIMEOUT_MS,
+        );
+
+        const utterance =
+          new SpeechSynthesisUtterance(text);
+
+        utterance.lang = "es-CO";
+
+        const voice = window.speechSynthesis
+          .getVoices()
+          .find((v) =>
+            v.lang.toLowerCase().startsWith("es"),
+          );
+
+        if (voice) {
+          utterance.voice = voice;
+        }
+
+        utterance.onend = finish;
+        utterance.onerror = finish;
+
+        window.speechSynthesis.speak(utterance);
+      }),
+    [],
+  );
 
   const handle = useCallback(
     async (text: string) => {
+      const command = text.trim();
+
+      if (
+        command.length < 3 ||
+        busyRef.current ||
+        !enabledRef.current
+      ) {
+        return;
+      }
+
+      // Evita ejecutar dos veces el mismo comando.
+      if (command === lastCommandRef.current) {
+        return;
+      }
+
+      lastCommandRef.current = command;
+
       busyRef.current = true;
       armedUntilRef.current = 0;
+
+      clearInterimTimer();
+
       setStatus("processing");
       setInterim("");
 
@@ -81,93 +177,245 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
       } catch {}
 
       try {
-        const reply = await cmdRef.current(text);
+        const reply = await Promise.race([
+          cmdRef.current(command),
+
+          new Promise<string>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new Error(
+                  "El asistente tardó demasiado en responder.",
+                ),
+              );
+            }, COMMAND_TIMEOUT_MS);
+          }),
+        ]);
+
+        if (!mountedRef.current) {
+          return;
+        }
+
         setStatus("speaking");
+
         await speak(reply);
+      } catch (e) {
+        if (!mountedRef.current) {
+          return;
+        }
+
+        const message =
+          e instanceof Error
+            ? e.message
+            : "No pude procesar tu comando.";
+
+        setError(message);
+
+        await speak(
+          "No pude procesar eso. Intenta de nuevo.",
+        );
       } finally {
         busyRef.current = false;
-        setStatus(enabledRef.current ? "listening" : "idle");
-        startListening(250);
+
+        if (mountedRef.current) {
+          setStatus(
+            enabledRef.current
+              ? "listening"
+              : "idle",
+          );
+
+          if (enabledRef.current) {
+            startListening(250);
+          }
+        }
       }
     },
-    [speak, startListening],
+    [
+      clearInterimTimer,
+      speak,
+      startListening,
+    ],
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    mountedRef.current = true;
 
     const SR =
       (window as AnyRecognition).SpeechRecognition ||
-      (window as AnyRecognition).webkitSpeechRecognition;
-
-    const isSecureContext =
-      window.isSecureContext ||
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
+      (window as AnyRecognition)
+        .webkitSpeechRecognition;
 
     if (!SR) {
       setStatus("unsupported");
-      setError("Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.");
-      return;
-    }
-
-    if (!isSecureContext) {
-      setStatus("idle");
-      setError("El reconocimiento de voz solo funciona en HTTPS o localhost.");
       return;
     }
 
     const rec = new SR();
+
     rec.lang = "es-CO";
     rec.continuous = true;
     rec.interimResults = true;
+    rec.maxAlternatives = 1;
 
     rec.onstart = () => {
       activeRef.current = true;
+
       setError(null);
-      if (enabledRef.current && !busyRef.current) setStatus("listening");
+
+      if (
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        setStatus("listening");
+      }
     };
 
     rec.onresult = (e: AnyRecognition) => {
       let partial = "";
 
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        const t = r[0].transcript.trim();
+      for (
+        let i = e.resultIndex;
+        i < e.results.length;
+        i++
+      ) {
+        const result = e.results[i];
 
-        if (r.isFinal) {
+        const transcript =
+          result[0].transcript.trim();
+
+        if (!transcript) {
+          continue;
+        }
+
+        if (result.isFinal) {
+          clearInterimTimer();
+
           setInterim("");
-          const lower = t.toLowerCase();
-          const wake = WAKE_WORDS.find((w) => lower.includes(w));
-          const isArmed = Date.now() < armedUntilRef.current;
 
-          if ((wake || isArmed) && !busyRef.current) {
+          const lower =
+            transcript.toLowerCase();
+
+          const wake = WAKE_WORDS.find((word) =>
+            lower.includes(word),
+          );
+
+          const isArmed =
+            Date.now() <
+            armedUntilRef.current;
+
+          if (
+            (wake || isArmed) &&
+            !busyRef.current
+          ) {
             if (!wake) {
               armedUntilRef.current = 0;
-              if (t.length > 2) void handle(t);
-              continue;
-            }
 
-            const rest = t.slice(lower.indexOf(wake) + wake.length).replace(/^[\s,.]+/, "");
-
-            if (rest.length > 2) {
-              void handle(rest);
+              void handle(transcript);
             } else {
-              armedUntilRef.current = Date.now() + 10_000;
-              setInterim("Te escucho…");
+              const startIndex =
+                lower.indexOf(wake) +
+                wake.length;
+
+              const rest = transcript
+                .slice(startIndex)
+                .replace(/^[\s,.!?]+/, "");
+
+              if (rest.length > 2) {
+                void handle(rest);
+              } else {
+                armedUntilRef.current =
+                  Date.now() + 10_000;
+
+                setInterim("Te escucho…");
+              }
             }
           }
         } else {
-          partial += t;
+          partial += `${transcript} `;
         }
       }
 
-      if (partial) setInterim(partial);
+      partial = partial.trim();
+
+      if (
+        !partial ||
+        busyRef.current
+      ) {
+        return;
+      }
+
+      setInterim(partial);
+
+      clearInterimTimer();
+
+      /*
+       * Algunos navegadores móviles pueden quedarse
+       * demasiado tiempo entregando únicamente resultados
+       * provisionales. Después de un pequeño intervalo,
+       * intentamos convertirlos en comando.
+       */
+      interimTimerRef.current = setTimeout(() => {
+        interimTimerRef.current = null;
+
+        if (
+          busyRef.current ||
+          !enabledRef.current
+        ) {
+          return;
+        }
+
+        const lower =
+          partial.toLowerCase();
+
+        const wake = WAKE_WORDS.find((word) =>
+          lower.includes(word),
+        );
+
+        const isArmed =
+          Date.now() <
+          armedUntilRef.current;
+
+        if (!wake && !isArmed) {
+          return;
+        }
+
+        if (wake) {
+          const startIndex =
+            lower.indexOf(wake) +
+            wake.length;
+
+          const rest = partial
+            .slice(startIndex)
+            .replace(/^[\s,.!?]+/, "");
+
+          if (rest.length > 2) {
+            void handle(rest);
+          } else {
+            armedUntilRef.current =
+              Date.now() + 10_000;
+
+            setInterim("Te escucho…");
+          }
+        } else {
+          armedUntilRef.current = 0;
+
+          void handle(partial);
+        }
+      }, INTERIM_FALLBACK_MS);
     };
 
     rec.onend = () => {
       activeRef.current = false;
-      if (enabledRef.current && !busyRef.current) {
+
+      /*
+       * Chrome/Android puede cerrar SpeechRecognition
+       * aunque continuous=true.
+       *
+       * Lo reiniciamos automáticamente.
+       */
+      if (
+        enabledRef.current &&
+        !busyRef.current
+      ) {
         startListening(300);
       }
     };
@@ -175,57 +423,118 @@ export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) 
     rec.onerror = (e: AnyRecognition) => {
       activeRef.current = false;
 
-      if (["not-allowed", "service-not-allowed"].includes(e.error)) {
+      if (e.error === "not-allowed") {
         enabledRef.current = false;
+
         setEnabled(false);
         setStatus("idle");
-        setError("El micrófono está bloqueado. Permite su uso en el navegador y vuelve a intentarlo.");
+
+        setError(
+          "El micrófono está bloqueado. Permite su uso en el navegador y vuelve a tocarlo.",
+        );
+
         clearRestartTimer();
+        clearInterimTimer();
+
         return;
       }
 
-      if (["audio-capture", "network", "no-speech"].includes(e.error)) {
-        setError("No pude capturar tu voz. Revisa el micrófono y vuelve a intentarlo.");
+      if (e.error === "audio-capture") {
+        setError(
+          "No pude acceder al micrófono. Revisa que no esté siendo usado por otra aplicación.",
+        );
+      } else if (
+        e.error !== "aborted" &&
+        e.error !== "no-speech"
+      ) {
+        setError(
+          "La escucha se interrumpió. Reintentando…",
+        );
       }
 
-      if (e.error !== "aborted" && enabledRef.current && !busyRef.current) {
-        startListening(800);
+      if (
+        e.error !== "aborted" &&
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        startListening(
+          e.error === "network"
+            ? 1500
+            : 600,
+        );
       }
     };
 
     recRef.current = rec;
 
     return () => {
+      mountedRef.current = false;
+
       enabledRef.current = false;
+
       clearRestartTimer();
+      clearInterimTimer();
+
       try {
         rec.stop();
       } catch {}
+
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {}
     };
-  }, [clearRestartTimer, handle, startListening]);
+  }, [
+    clearInterimTimer,
+    clearRestartTimer,
+    handle,
+    startListening,
+  ]);
 
   const toggle = useCallback(() => {
     const rec = recRef.current;
-    if (!rec) return;
 
-    if (enabledRef.current) {
-      enabledRef.current = false;
-      setEnabled(false);
-      setStatus("idle");
-      setInterim("");
-      clearRestartTimer();
-      try {
-        rec.stop();
-      } catch {}
+    if (!rec) {
       return;
     }
 
+    if (enabledRef.current) {
+      enabledRef.current = false;
+
+      setEnabled(false);
+      setStatus("idle");
+      setInterim("");
+
+      clearRestartTimer();
+      clearInterimTimer();
+
+      try {
+        rec.stop();
+      } catch {}
+
+      return;
+    }
+
+    lastCommandRef.current = "";
+
     enabledRef.current = true;
+
     setEnabled(true);
     setStatus("listening");
     setError(null);
-    startListening();
-  }, [clearRestartTimer, startListening]);
 
-  return { status, enabled, interim, error, toggle, sendText: handle };
+    startListening();
+  }, [
+    clearInterimTimer,
+    clearRestartTimer,
+    startListening,
+  ]);
+
+  return {
+    status,
+    enabled,
+    interim,
+    error,
+    toggle,
+    sendText: handle,
+  };
 }
