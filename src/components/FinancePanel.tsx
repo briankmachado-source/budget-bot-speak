@@ -1,15 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind, Play, Pause, Music } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { runVoiceCommand, type Weather, type Song } from "@/lib/assistant.functions";
-import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
+import type { Weather } from "@/lib/weather.server";
+import type { Song } from "@/lib/youtube.server";
 import { Button } from "@/components/ui/button";
 import { Reminders } from "@/components/Reminders";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 
@@ -17,17 +15,9 @@ const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP",
 const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
 type Tx = { id: string; type: string; amount: number; category: string; description: string | null; occurred_at: string };
-type Msg = { role: "user" | "assistant"; text: string };
 
-export function Dashboard({ email }: { email: string }) {
+export function FinancePanel({ song, weather, onCloseSong, onCloseWeather }: { song: Song | null; weather: Weather | null; onCloseSong: () => void; onCloseWeather: () => void }) {
   const qc = useQueryClient();
-  const run = useServerFn(runVoiceCommand);
-  const [log, setLog] = useState<Msg[]>([]);
-  const [text, setText] = useState("");
-  const [weather, setWeather] = useState<Weather | null>(null);
-  const [song, setSong] = useState<Song | null>(null);
-
-
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions"],
     queryFn: async () => {
@@ -40,26 +30,6 @@ export function Dashboard({ email }: { email: string }) {
       return data as Tx[];
     },
   });
-
-  const voice = useVoiceAssistant(async (cmd) => {
-    setLog((l) => [...l, { role: "user", text: cmd }]);
-    try {
-      const r = await run({ data: { text: cmd } });
-      setLog((l) => [...l, { role: "assistant", text: r.reply }]);
-      if (r.action === "create") qc.invalidateQueries({ queryKey: ["transactions"] });
-      if (r.weather) setWeather(r.weather);
-      if (r.song) setSong(r.song);
-      if (r.stopMusic) setSong(null);
-      if (r.action === "remind") { qc.invalidateQueries({ queryKey: ["reminders"] }); toast.success(r.reply); }
-
-      return r.reply;
-    } catch (e) {
-      const m = (e as Error).message || "Algo salió mal.";
-      setLog((l) => [...l, { role: "assistant", text: m }]);
-      return m;
-    }
-  });
-
   const stats = useMemo(() => {
     const start = new Date();
     start.setDate(1);
@@ -87,98 +57,10 @@ export function Dashboard({ email }: { email: string }) {
     if (error) toast.error("No se pudo eliminar");
     else qc.invalidateQueries({ queryKey: ["transactions"] });
   }
-
-  const statusLabel = {
-    idle: "Toca el micrófono para activarme",
-    listening: 'Escuchando… di "Hola" o "Atento AI" y tu comando',
-    processing: "Procesando…",
-    speaking: "Respondiendo…",
-    unsupported: "Tu navegador no soporta voz. Usa Chrome o escribe abajo.",
-  }[voice.status];
-
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:py-10">
-      <header className="mb-8 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <Mic className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold leading-none">Atento AI</h1>
-            <p className="text-xs text-muted-foreground">{email}</p>
-          </div>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
-          <LogOut className="mr-2 h-4 w-4" /> Salir
-        </Button>
-      </header>
-
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
-        {/* Assistant */}
-        <section className="flex flex-col rounded-3xl border bg-card p-6">
-          <div className="flex flex-col items-center py-6">
-            <button
-              onClick={voice.toggle}
-              disabled={voice.status === "unsupported"}
-              aria-label={voice.enabled ? "Desactivar escucha" : "Activar escucha"}
-              className="relative flex h-36 w-36 items-center justify-center rounded-full"
-            >
-              {voice.enabled && <span className="orb-ring absolute inset-0 rounded-full bg-primary" />}
-              <span
-                className={cn(
-                  "relative flex h-28 w-28 items-center justify-center rounded-full transition-colors",
-                  voice.enabled ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground",
-                )}
-              >
-                {voice.enabled ? <Mic className="h-10 w-10" /> : <MicOff className="h-10 w-10" />}
-              </span>
-            </button>
-            <p className="mt-5 text-center text-sm text-muted-foreground">{statusLabel}</p>
-            {voice.error && <p className="mt-2 max-w-sm text-center text-sm text-destructive">{voice.error}</p>}
-            {voice.interim && <p className="mt-2 text-center text-base italic">"{voice.interim}"</p>}
-          </div>
-
-          <div className="flex-1 space-y-3 overflow-y-auto rounded-2xl bg-background/40 p-4" style={{ maxHeight: 280, minHeight: 140 }}>
-            {log.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Prueba: <span className="text-foreground">"Hola, registra pago por 400 mil de verduras"</span> o{" "}
-                <span className="text-foreground">"Atento AI, ¿cuánto he gastado este mes?"</span> o{" "}<span className="text-foreground">"Hola, ¿cómo está el clima en Barranquilla?"</span> o{" "}<span className="text-foreground">"Atento AI, pon Vivir mi vida de Marc Anthony"</span>
-              </p>
-            )}
-            {log.map((m, i) => (
-              <div key={i} className={cn("flex", m.role === "user" && "justify-end")}>
-                <div
-                  className={cn(
-                    "max-w-[85%] rounded-2xl px-4 py-2 text-sm",
-                    m.role === "user" ? "bg-primary text-primary-foreground" : "text-foreground",
-                  )}
-                >
-                  {m.text}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <form
-            className="mt-4 flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!text.trim()) return;
-              void voice.sendText(text.trim());
-              setText("");
-            }}
-          >
-            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="O escribe un comando…" />
-            <Button type="submit" size="icon" disabled={voice.status === "processing"}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </section>
-
-        {/* Panel */}
-        <section className="space-y-6">
-          {song && <MusicPlayer song={song} onClose={() => setSong(null)} />}
-          {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
+    <div className="space-y-6">
+          {song && <MusicPlayer song={song} onClose={() => onCloseSong()} />}
+          {weather && <WeatherCard w={weather} onClose={() => onCloseWeather()} />}
 
           <Reminders />
           <div className="grid grid-cols-3 gap-3">
@@ -258,8 +140,6 @@ export function Dashboard({ email }: { email: string }) {
               </ul>
             )}
           </div>
-        </section>
-      </div>
     </div>
   );
 }
@@ -281,7 +161,7 @@ function WeatherIcon({ code, className }: { code: number; className?: string }) 
   return <Sun className={className} />;
 }
 
-function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void }) {
+export function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void }) {
   return (
     <div className="relative rounded-3xl border bg-card p-6">
       <button onClick={onClose} aria-label="Cerrar clima" className="absolute right-4 top-4 text-muted-foreground hover:text-foreground">
@@ -308,7 +188,7 @@ function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void }) {
   );
 }
 
-function MusicPlayer({ song, onClose }: { song: Song; onClose: () => void }) {
+export function MusicPlayer({ song, onClose }: { song: Song; onClose: () => void }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [playing, setPlaying] = useState(true);
 
