@@ -90,7 +90,7 @@ function ChatShell({ threadId, email }: { threadId: string; email: string }) {
 
   async function removeThread(id: string) {
     const { error } = await supabase.from("chat_threads").delete().eq("id", id);
-    if (error) return toast.error("No se pudo eliminar");
+    if (error) { toast.error("No se pudo eliminar"); return; }
     await qc.invalidateQueries({ queryKey: ["threads"] });
     if (id === threadId) {
       const next = threads.data?.find((t) => t.id !== id);
