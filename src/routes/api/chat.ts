@@ -38,7 +38,7 @@ export const Route = createFileRoute("/api/chat")({
         const { data: thread } = await sb.from("chat_threads").select("id, title").eq("id", threadId).maybeSingle();
         if (!thread) return new Response("Conversación no encontrada", { status: 404 });
 
-        const last = messages[messages.length - 1];
+        const last = messages[messages.length - 1]!;
         if (last.role === "user") {
           const { error } = await sb.from("chat_messages").upsert(
             { message_id: last.id, thread_id: threadId, user_id: userId, role: "user", parts: last.parts as unknown as Json },
