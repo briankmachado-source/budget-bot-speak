@@ -176,7 +176,7 @@ function ChatShell({ threadId, email }: { threadId: string; email: string }) {
 
       {/* Floating music always mounted so it keeps playing */}
       {(song || weather) && (
-        <div className="fixed bottom-28 right-4 z-30 w-80 space-y-3 lg:right-[416px]">
+        <div className="fixed bottom-48 right-4 z-30 w-80 space-y-3 lg:right-[416px]">
           {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
           {song && <MusicPlayer song={song} onClose={() => setSong(null)} />}
         </div>
