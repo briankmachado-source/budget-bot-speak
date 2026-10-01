@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const COMMAND_TIMEOUT_MS = 20_000;
 const SPEECH_TIMEOUT_MS = 15_000;
 
-// Espera después del último fragmento de voz antes de procesar.
-const SILENCE_DELAY_MS = 3_000;
+// Tiempo de silencio antes de procesar el comando.
+// 2 segundos.
+const SILENCE_DELAY_MS = 2_000;
 
 type Status =
   | "idle"
@@ -29,6 +30,12 @@ export function useVoiceAssistant(
   const enabledRef = useRef(false);
   const busyRef = useRef(false);
   const activeRef = useRef(false);
+
+  // IMPORTANTE:
+  // Evita que el reconocimiento vuelva a activarse
+  // mientras Atento AI está hablando.
+  const speakingRef = useRef(false);
+
   const mountedRef = useRef(true);
 
   const restartTimerRef =
@@ -36,6 +43,10 @@ export function useVoiceAssistant(
 
   const silenceTimerRef =
     useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Guarda todo lo que el usuario ha dicho antes
+  // de llegar a los 2 segundos de silencio.
+  const commandBufferRef = useRef("");
 
   const lastCommandRef = useRef("");
 
@@ -77,6 +88,7 @@ export function useVoiceAssistant(
       if (
         !enabledRef.current ||
         busyRef.current ||
+        speakingRef.current ||
         !mountedRef.current
       ) {
         return;
@@ -88,6 +100,7 @@ export function useVoiceAssistant(
         if (
           !enabledRef.current ||
           busyRef.current ||
+          speakingRef.current ||
           activeRef.current ||
           !mountedRef.current
         ) {
@@ -98,12 +111,38 @@ export function useVoiceAssistant(
           recRef.current?.start();
         } catch {
           activeRef.current = false;
-          startListening(700);
+
+          if (
+            enabledRef.current &&
+            !busyRef.current &&
+            !speakingRef.current
+          ) {
+            startListening(700);
+          }
         }
       }, delay);
     },
     [clearRestartTimer],
   );
+
+  // ------------------------------------------------------------
+  // DETENER MICRÓFONO
+  // ------------------------------------------------------------
+
+  const stopListening = useCallback(() => {
+    clearRestartTimer();
+    clearSilenceTimer();
+
+    activeRef.current = false;
+
+    try {
+      recRef.current?.stop();
+    } catch {}
+
+  }, [
+    clearRestartTimer,
+    clearSilenceTimer,
+  ]);
 
   // ------------------------------------------------------------
   // RESPUESTA HABLADA
@@ -120,6 +159,17 @@ export function useVoiceAssistant(
           return;
         }
 
+        // Marcar que Atento AI está hablando.
+        // Esto impide que onend vuelva a activar el micrófono.
+        speakingRef.current = true;
+
+        // Detener cualquier reconocimiento que pudiera
+        // haber quedado activo.
+        try {
+          recRef.current?.stop();
+        } catch {}
+
+        // Cancelar cualquier frase anterior.
         window.speechSynthesis.cancel();
 
         let finished = false;
@@ -132,6 +182,9 @@ export function useVoiceAssistant(
           finished = true;
 
           clearTimeout(timeout);
+
+          // Atento AI ya terminó de hablar.
+          speakingRef.current = false;
 
           resolve();
         };
@@ -146,6 +199,9 @@ export function useVoiceAssistant(
 
         utterance.lang = "es-CO";
 
+        utterance.rate = 1;
+        utterance.pitch = 1;
+
         const voice = window.speechSynthesis
           .getVoices()
           .find((v) =>
@@ -158,7 +214,11 @@ export function useVoiceAssistant(
           utterance.voice = voice;
         }
 
+        // Cuando termina de hablar.
         utterance.onend = finish;
+
+        // Si ocurre un error también liberamos
+        // el bloqueo del micrófono.
         utterance.onerror = finish;
 
         window.speechSynthesis.speak(
@@ -187,7 +247,7 @@ export function useVoiceAssistant(
         return;
       }
 
-      // Evitar duplicados exactos.
+      // Evitar comandos duplicados.
       if (command === lastCommandRef.current) {
         return;
       }
@@ -198,13 +258,18 @@ export function useVoiceAssistant(
 
       clearSilenceTimer();
 
+      // Limpiar el buffer antes de procesar.
+      commandBufferRef.current = "";
+
       setInterim("");
       setStatus("processing");
 
-      // Detener reconocimiento mientras se procesa.
-      try {
-        recRef.current?.stop();
-      } catch {}
+      // --------------------------------------------------------
+      // MUY IMPORTANTE:
+      // apagar micrófono ANTES de procesar.
+      // --------------------------------------------------------
+
+      stopListening();
 
       try {
         const reply = await Promise.race([
@@ -227,7 +292,15 @@ export function useVoiceAssistant(
 
         setStatus("speaking");
 
+        // ------------------------------------------------------
+        // ATENTO AI HABLA
+        //
+        // El micrófono permanece apagado durante toda
+        // la respuesta.
+        // ------------------------------------------------------
+
         await speak(reply);
+
       } catch (e) {
         if (!mountedRef.current) {
           return;
@@ -240,10 +313,16 @@ export function useVoiceAssistant(
 
         setError(message);
 
+        setStatus("speaking");
+
         await speak(
           "No pude procesar eso. Intenta de nuevo.",
         );
+
       } finally {
+        // Asegurarnos de que el bloqueo se libere.
+        speakingRef.current = false;
+
         busyRef.current = false;
 
         if (mountedRef.current) {
@@ -253,7 +332,15 @@ export function useVoiceAssistant(
               : "idle",
           );
 
-          if (enabledRef.current) {
+          // ----------------------------------------------------
+          // Cuando Atento AI termina de hablar,
+          // volvemos a activar el micrófono.
+          // ----------------------------------------------------
+
+          if (
+            enabledRef.current &&
+            !speakingRef.current
+          ) {
             startListening(300);
           }
         }
@@ -263,6 +350,7 @@ export function useVoiceAssistant(
       clearSilenceTimer,
       speak,
       startListening,
+      stopListening,
     ],
   );
 
@@ -290,7 +378,7 @@ export function useVoiceAssistant(
     // Escucha continua.
     rec.continuous = true;
 
-    // Necesitamos resultados provisionales.
+    // Resultados provisionales.
     rec.interimResults = true;
 
     rec.maxAlternatives = 1;
@@ -306,7 +394,8 @@ export function useVoiceAssistant(
 
       if (
         enabledRef.current &&
-        !busyRef.current
+        !busyRef.current &&
+        !speakingRef.current
       ) {
         setStatus("listening");
       }
@@ -317,8 +406,17 @@ export function useVoiceAssistant(
     // ----------------------------------------------------------
 
     rec.onresult = (e: AnyRecognition) => {
-      let finalText = "";
-      let interimText = "";
+      // Si Atento AI está hablando, ignoramos completamente
+      // cualquier resultado que pudiera llegar.
+      if (
+        speakingRef.current ||
+        busyRef.current
+      ) {
+        return;
+      }
+
+      let newFinalText = "";
+      let newInterimText = "";
 
       for (
         let i = e.resultIndex;
@@ -328,103 +426,102 @@ export function useVoiceAssistant(
         const result = e.results[i];
 
         const transcript =
-          result[0].transcript.trim();
+          result[0]?.transcript?.trim() ?? "";
 
         if (!transcript) {
           continue;
         }
 
         if (result.isFinal) {
-          finalText += `${transcript} `;
+          newFinalText += `${transcript} `;
         } else {
-          interimText += `${transcript} `;
+          newInterimText += `${transcript} `;
         }
       }
 
-      finalText = finalText.trim();
-      interimText = interimText.trim();
+      newFinalText = newFinalText.trim();
+      newInterimText = newInterimText.trim();
 
       // --------------------------------------------------------
-      // SI HAY TEXTO FINAL
+      // AGREGAR TEXTO FINAL
       // --------------------------------------------------------
 
-      if (finalText) {
-        clearSilenceTimer();
-
-        setInterim(finalText);
-
-        /*
-         * No procesamos inmediatamente.
-         *
-         * Esperamos 3 segundos para darle tiempo a la persona
-         * de continuar hablando.
-         */
-
-        silenceTimerRef.current = setTimeout(() => {
-          silenceTimerRef.current = null;
-
-          if (
-            busyRef.current ||
-            !enabledRef.current
-          ) {
-            return;
-          }
-
-          const command = finalText.trim();
-
-          if (command.length > 2) {
-            void handle(command);
-          }
-        }, SILENCE_DELAY_MS);
-
-        return;
+      if (newFinalText) {
+        if (commandBufferRef.current) {
+          commandBufferRef.current +=
+            ` ${newFinalText}`;
+        } else {
+          commandBufferRef.current =
+            newFinalText;
+        }
       }
 
       // --------------------------------------------------------
-      // RESULTADO PROVISIONAL
+      // MOSTRAR LO QUE ESTAMOS ESCUCHANDO
       // --------------------------------------------------------
 
-      if (interimText) {
-        setInterim(interimText);
+      const displayText = [
+        commandBufferRef.current,
+        newInterimText,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
 
+      if (displayText) {
+        setInterim(displayText);
+      }
+
+      // --------------------------------------------------------
+      // REINICIAR LOS 2 SEGUNDOS DE SILENCIO
+      // --------------------------------------------------------
+
+      if (
+        newFinalText ||
+        newInterimText
+      ) {
         clearSilenceTimer();
 
-        /*
-         * Reiniciamos el temporizador cada vez que la persona
-         * sigue hablando.
-         *
-         * Mientras continúe hablando, no se procesa.
-         */
+        silenceTimerRef.current =
+          setTimeout(() => {
+            silenceTimerRef.current = null;
 
-        silenceTimerRef.current = setTimeout(() => {
-          silenceTimerRef.current = null;
+            if (
+              busyRef.current ||
+              speakingRef.current ||
+              !enabledRef.current
+            ) {
+              return;
+            }
 
-          if (
-            busyRef.current ||
-            !enabledRef.current
-          ) {
-            return;
-          }
+            const command =
+              commandBufferRef.current.trim();
 
-          const command = interimText.trim();
+            if (command.length > 2) {
+              void handle(command);
+            }
 
-          if (command.length > 2) {
-            void handle(command);
-          }
-        }, SILENCE_DELAY_MS);
+          }, SILENCE_DELAY_MS);
       }
     };
 
     // ----------------------------------------------------------
-    // CHROME DETUVO EL RECONOCIMIENTO
+    // RECONOCIMIENTO TERMINÓ
     // ----------------------------------------------------------
 
     rec.onend = () => {
       activeRef.current = false;
 
+      // NO reiniciar el micrófono si:
+      //
+      // - el usuario lo desactivó
+      // - estamos procesando
+      // - Atento AI está hablando
+      //
       if (
         enabledRef.current &&
-        !busyRef.current
+        !busyRef.current &&
+        !speakingRef.current
       ) {
         startListening(400);
       }
@@ -466,10 +563,12 @@ export function useVoiceAssistant(
         );
       }
 
+      // No intentar reiniciar mientras Atento AI habla.
       if (
         e.error !== "aborted" &&
         enabledRef.current &&
-        !busyRef.current
+        !busyRef.current &&
+        !speakingRef.current
       ) {
         startListening(
           e.error === "network"
@@ -490,8 +589,14 @@ export function useVoiceAssistant(
 
       enabledRef.current = false;
 
+      busyRef.current = false;
+      speakingRef.current = false;
+      activeRef.current = false;
+
       clearRestartTimer();
       clearSilenceTimer();
+
+      commandBufferRef.current = "";
 
       try {
         rec.stop();
@@ -533,6 +638,8 @@ export function useVoiceAssistant(
       clearRestartTimer();
       clearSilenceTimer();
 
+      commandBufferRef.current = "";
+
       try {
         rec.stop();
       } catch {}
@@ -545,6 +652,7 @@ export function useVoiceAssistant(
     // ----------------------------------------------------------
 
     lastCommandRef.current = "";
+    commandBufferRef.current = "";
 
     enabledRef.current = true;
 
@@ -560,6 +668,10 @@ export function useVoiceAssistant(
     clearSilenceTimer,
     startListening,
   ]);
+
+  // ------------------------------------------------------------
+  // RESULTADO DEL HOOK
+  // ------------------------------------------------------------
 
   return {
     status,
