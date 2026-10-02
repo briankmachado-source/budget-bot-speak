@@ -40,14 +40,25 @@ export function useAtentoVoice(
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Bloquea el reconocimiento mientras Atento está hablando.
   const assistantSpeakingRef = useRef(false);
+
+  // Indica que el usuario detuvo manualmente el micrófono.
   const manuallyStoppedRef = useRef(false);
+
+  // Evita la referencia circular entre startListening y speak.
+  const speakRef = useRef<(text: string) => void>(() => {});
 
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const stopListening = useCallback(() => {
     manuallyStoppedRef.current = true;
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
 
     try {
       recognitionRef.current?.abort();
@@ -64,11 +75,13 @@ export function useAtentoVoice(
       return;
     }
 
+    // Nunca activar el micrófono mientras Atento habla.
     if (assistantSpeakingRef.current) {
       console.log("Micrófono bloqueado: Atento está hablando.");
       return;
     }
 
+    // No escuchar mientras se está procesando la solicitud.
     if (isProcessing) {
       return;
     }
@@ -86,7 +99,7 @@ export function useAtentoVoice(
     recognition.lang = "es-CO";
 
     recognition.onstart = () => {
-      if (assistantSpeakingRef.current) {
+      if (assistantSpeakingRef.current || isProcessing) {
         recognition.abort();
         return;
       }
@@ -97,11 +110,9 @@ export function useAtentoVoice(
     recognition.onresult = async (
       event: SpeechRecognitionEventLike
     ) => {
-      // Nunca procesar voz mientras Atento está hablando.
-      if (assistantSpeakingRef.current) {
-        console.log(
-          "Resultado ignorado: el asistente está hablando."
-        );
+      // Ignorar cualquier sonido capturado mientras Atento habla.
+      if (assistantSpeakingRef.current || isProcessing) {
+        console.log("Resultado ignorado: Atento está ocupado.");
         return;
       }
 
@@ -134,11 +145,14 @@ export function useAtentoVoice(
       setIsProcessing(true);
 
       try {
+        // Enviar el texto al asistente.
         const response = await onUserText(text);
 
         setIsProcessing(false);
 
-        speak(response);
+        // Hablar usando la referencia para evitar
+        // problemas de declaración circular.
+        speakRef.current(response);
       } catch (error) {
         console.error(
           "Error procesando mensaje:",
@@ -147,7 +161,7 @@ export function useAtentoVoice(
 
         setIsProcessing(false);
 
-        speak(
+        speakRef.current(
           "Lo siento, tuve un problema procesando tu solicitud."
         );
       }
@@ -160,128 +174,10 @@ export function useAtentoVoice(
       );
 
       setIsListening(false);
-
-      if (
-        event.error === "aborted" ||
-        event.error === "no-speech"
-      ) {
-        return;
-      }
     };
 
     recognition.onend = () => {
       setIsListening(false);
     };
 
-    recognitionRef.current = recognition;
-
-    try {
-      recognition.start();
-    } catch (error) {
-      console.log(
-        "No se pudo iniciar el micrófono:",
-        error
-      );
-    }
-  }, [SpeechRecognition, isProcessing, onUserText]);
-
-  const speak = useCallback(
-    (text: string) => {
-      if (!text?.trim()) {
-        return;
-      }
-
-      // Cancelar cualquier respuesta anterior.
-      window.speechSynthesis.cancel();
-
-      // BLOQUEAR EL MICRÓFONO ANTES DE HABLAR.
-      assistantSpeakingRef.current = true;
-
-      try {
-        recognitionRef.current?.abort();
-      } catch {}
-
-      setIsListening(false);
-      setIsSpeaking(true);
-
-      const utterance =
-        new SpeechSynthesisUtterance(text);
-
-      utterance.lang = "es-CO";
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      utterance.onstart = () => {
-        assistantSpeakingRef.current = true;
-        setIsSpeaking(true);
-        setIsListening(false);
-      };
-
-      utterance.onend = () => {
-        setIsSpeaking(false);
-
-        if (silenceTimerRef.current) {
-          clearTimeout(
-            silenceTimerRef.current
-          );
-        }
-
-        // Esperar 2 segundos después de hablar.
-        silenceTimerRef.current = setTimeout(() => {
-          assistantSpeakingRef.current = false;
-
-          if (!manuallyStoppedRef.current) {
-            startListening();
-          }
-        }, SILENCE_AFTER_RESPONSE);
-      };
-
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-
-        if (silenceTimerRef.current) {
-          clearTimeout(
-            silenceTimerRef.current
-          );
-        }
-
-        silenceTimerRef.current = setTimeout(() => {
-          assistantSpeakingRef.current = false;
-
-          if (!manuallyStoppedRef.current) {
-            startListening();
-          }
-        }, SILENCE_AFTER_RESPONSE);
-      };
-
-      window.speechSynthesis.speak(utterance);
-    },
-    [startListening]
-  );
-
-  useEffect(() => {
-    return () => {
-      try {
-        recognitionRef.current?.abort();
-      } catch {}
-
-      window.speechSynthesis.cancel();
-
-      if (silenceTimerRef.current) {
-        clearTimeout(
-          silenceTimerRef.current
-        );
-      }
-    };
-  }, []);
-
-  return {
-    isListening,
-    isSpeaking,
-    isProcessing,
-    startListening,
-    stopListening,
-    speak,
-  };
-}
+    recognition
