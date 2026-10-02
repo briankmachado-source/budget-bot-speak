@@ -372,9 +372,9 @@ function ChatWindow({
         <PromptInput
           accept="image/*,application/pdf,text/*"
           multiple
-          maxFiles={4}
-          maxFileSize={5 * 1024 * 1024}
-          onError={(e) => toast.error(e.code === "max_file_size" ? "Archivo demasiado grande (máx. 5 MB)" : e.code === "max_files" ? "Máximo 4 archivos" : "Tipo de archivo no admitido (imágenes, PDF o texto)")}
+          maxFiles={10}
+          maxFileSize={20 * 1024 * 1024}
+          onError={(e) => toast.error(e.code === "max_file_size" ? "Archivo demasiado grande (máx. 20 MB)" : e.code === "max_files" ? "Máximo 10 archivos" : "Tipo de archivo no admitido (imágenes, PDF o texto)")}
           onSubmit={(msg) => {
             const t = msg.text?.trim() ?? "";
             const files = msg.files ?? [];
