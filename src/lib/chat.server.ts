@@ -98,10 +98,58 @@ export function buildTools(sb: SupabaseClient<Database>, userId: string) {
       inputSchema: z.object({}),
       execute: async () => ({ ok: true, detenida: true }),
     }),
+    guardar_recuerdo: tool({
+      description: "Guarda en la memoria a largo plazo un dato duradero aprendido del usuario (datos personales, gustos, metas, hábitos, preferencias de respuesta, patrones de gasto). Úsala por iniciativa propia, sin pedir permiso, cada vez que aprendas algo útil para el futuro. No guardes datos ya memorizados.",
+      inputSchema: z.object({
+        contenido: z.string().describe("Hecho breve en tercera persona, ej. 'Vive en Medellín'"),
+        categoria: z.enum(["personal", "preferencias", "finanzas", "metas", "habitos", "musica", "general"]),
+      }),
+      execute: async ({ contenido, categoria }) => {
+        const { error } = await sb.from("ai_memories").insert({ user_id: userId, content: contenido.slice(0, 400), category: categoria });
+        return error ? { ok: false } : { ok: true };
+      },
+    }),
+    listar_recuerdos: tool({
+      description: "Muestra lo que has aprendido del usuario. Úsala SOLO si el usuario lo pide explícitamente.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const { data } = await sb.from("ai_memories").select("id, content, category").order("created_at", { ascending: false }).limit(100);
+        return { recuerdos: data ?? [] };
+      },
+    }),
+    olvidar_recuerdo: tool({
+      description: "Borra recuerdos cuando el usuario lo pida. Pasa el texto a olvidar o 'todo' para borrar toda la memoria.",
+      inputSchema: z.object({ buscar: z.string() }),
+      execute: async ({ buscar }) => {
+        let q = sb.from("ai_memories").delete().eq("user_id", userId);
+        if (buscar.trim().toLowerCase() !== "todo") q = q.ilike("content", `%${buscar}%`);
+        const { data, error } = await q.select("id");
+        return error ? { ok: false } : { ok: true, borrados: data?.length ?? 0 };
+      },
+    }),
   };
 }
 
-export function streamChat(request: Request, sb: SupabaseClient<Database>, userId: string, messages: ModelMessage[]) {
+async function buildContext(sb: SupabaseClient<Database>) {
+  const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
+  const in48 = new Date(Date.now() + 48 * 3600e3).toISOString();
+  const [mem, tx, rem] = await Promise.all([
+    sb.from("ai_memories").select("content, category").order("created_at", { ascending: false }).limit(80),
+    sb.from("transactions").select("type, amount, category").gte("occurred_at", start.toISOString()).limit(500),
+    sb.from("reminders").select("title, remind_at").eq("done", false).lte("remind_at", in48).order("remind_at").limit(10),
+  ]);
+  let ing = 0, gas = 0; const cat: Record<string, number> = {};
+  for (const r of tx.data ?? []) {
+    const a = Number(r.amount);
+    if (r.type === "income") ing += a; else { gas += a; cat[r.category] = (cat[r.category] ?? 0) + a; }
+  }
+  const memories = (mem.data ?? []).map((m) => `- [${m.category}] ${m.content}`).join("\n") || "(aún nada)";
+  const top = Object.entries(cat).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([c, v]) => `${c}: ${v}`).join(", ");
+  const reminders = (rem.data ?? []).map((r) => `- ${r.title} (${new Date(r.remind_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })})`).join("\n") || "(ninguno)";
+  return `MEMORIA A LARGO PLAZO DEL USUARIO:\n${memories}\n\nESTADO ACTUAL (para ser proactivo):\nMes: ingresos ${ing}, gastos ${gas}, balance ${ing - gas}. Mayores gastos: ${top || "sin datos"}.\nRecordatorios próximos 48h:\n${reminders}`;
+}
+
+export async function streamChat(request: Request, sb: SupabaseClient<Database>, userId: string, messages: ModelMessage[]) {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("Falta la configuración de IA.");
   const runIdFetch = createLovableAiGatewayRunIdFetch(getLovableAiGatewayRunId(request));
@@ -111,11 +159,19 @@ export function streamChat(request: Request, sb: SupabaseClient<Database>, userI
     headers: { "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
     fetch: runIdFetch.fetch,
   });
-  const system = `Eres "Atento AI", un asistente conversacional por voz, estilo ChatGPT, para usuarios en Colombia. Respondes siempre en español.
+  const context = await buildContext(sb).catch(() => "");
+  const system = `Eres "Atento AI", un asistente conversacional por voz, autónomo y con aprendizaje continuo, para usuarios en Colombia. Respondes siempre en español.
 Fecha y hora actual en Colombia (UTC-05:00): ${bogotaNow()}.
 Los mensajes suelen venir transcritos de voz y pueden tener errores: interpreta la intención. Ignora saludos o palabras de activación como "hola" o "Atento AI".
 Puedes hablar de cualquier tema (cultura, ciencia, cocina, consejos, cálculos, traducciones, programación). No tienes noticias ni resultados deportivos en tiempo real: dilo con honestidad.
 Usa las herramientas cuando el usuario pida: registrar gastos/ingresos (moneda COP, montos enteros), consultar sus finanzas o recordatorios, crear recordatorios (si solo da día sin hora usa 09:00; "en N minutos/días" se calcula desde ahora; si no queda claro cuándo, pregunta), clima, poner o detener música.
+
+APRENDIZAJE CONTINUO: cada vez que detectes un dato duradero del usuario (nombre, familia, ciudad, trabajo, metas, gustos, hábitos, patrones de gasto, cómo prefiere que le respondas) llama a guardar_recuerdo en silencio, sin anunciarlo. Usa siempre la memoria para personalizar (llámalo por su nombre, usa su ciudad para el clima, su música favorita, su estilo preferido). Si un dato cambia, guarda el nuevo. Solo muestra o borra recuerdos si el usuario lo pide.
+
+PROACTIVIDAD AVANZADA: anticípate. Cuando sea oportuno y breve, agrega una observación útil: gasto inusual o categoría alta, balance negativo, recordatorio próximo, sugerencia de crear un recordatorio cuando mencione un compromiso, o de registrar un gasto que mencione de pasada. Si registra un gasto repetido, sugiere un presupuesto. No seas insistente: máximo una sugerencia por respuesta.
+
+${context}
+
 Tus respuestas se leen en voz alta: sé natural y conciso (normalmente 1 a 4 frases), escribe montos como "400 mil pesos". Usa listas o markdown solo cuando el usuario pida algo largo o estructurado.`;
 
   const result = streamText({
@@ -123,7 +179,7 @@ Tus respuestas se leen en voz alta: sé natural y conciso (normalmente 1 a 4 fra
     system,
     messages,
     tools: buildTools(sb, userId),
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(50),
     abortSignal: request.signal,
     providerOptions: {
       openai: {
