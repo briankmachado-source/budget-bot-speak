@@ -155,4 +155,144 @@ export function useAtentoVoice(
         speakRef.current(response);
       } catch (error) {
         console.error(
-          "Error procesando
+          "Error procesando mensaje:",
+          error
+        );
+
+        setIsProcessing(false);
+
+        speakRef.current(
+          "Lo siento, tuve un problema procesando tu solicitud."
+        );
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.log(
+        "Speech recognition:",
+        event.error
+      );
+
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch (error) {
+      console.log(
+        "No se pudo iniciar el micrófono:",
+        error
+      );
+    }
+  }, [SpeechRecognition, isProcessing, onUserText]);
+
+  const speak = useCallback(
+    (text: string) => {
+      if (!text?.trim()) {
+        return;
+      }
+
+      // Cancelar cualquier respuesta de voz anterior.
+      window.speechSynthesis.cancel();
+
+      // Bloquear el micrófono antes de hablar.
+      assistantSpeakingRef.current = true;
+
+      // Cancelar cualquier temporizador anterior.
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+
+      // Detener reconocimiento inmediatamente.
+      try {
+        recognitionRef.current?.abort();
+      } catch {}
+
+      setIsListening(false);
+      setIsSpeaking(true);
+
+      const utterance =
+        new SpeechSynthesisUtterance(text);
+
+      utterance.lang = "es-CO";
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      utterance.onstart = () => {
+        // Mantener bloqueado el micrófono.
+        assistantSpeakingRef.current = true;
+
+        setIsSpeaking(true);
+        setIsListening(false);
+      };
+
+      utterance.onend = () => {
+        setIsSpeaking(false);
+
+        // Esperar 2 segundos después de terminar de hablar.
+        silenceTimerRef.current = setTimeout(() => {
+          assistantSpeakingRef.current = false;
+
+          if (!manuallyStoppedRef.current) {
+            startListening();
+          }
+        }, SILENCE_AFTER_RESPONSE);
+      };
+
+      utterance.onerror = () => {
+        setIsSpeaking(false);
+
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+        }
+
+        // También esperar 2 segundos después de un error.
+        silenceTimerRef.current = setTimeout(() => {
+          assistantSpeakingRef.current = false;
+
+          if (!manuallyStoppedRef.current) {
+            startListening();
+          }
+        }, SILENCE_AFTER_RESPONSE);
+      };
+
+      // Iniciar respuesta de voz.
+      window.speechSynthesis.speak(utterance);
+    },
+    [startListening]
+  );
+
+  // Mantener siempre disponible la versión actual de speak.
+  speakRef.current = speak;
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {}
+
+      window.speechSynthesis.cancel();
+
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    isListening,
+    isSpeaking,
+    isProcessing,
+    startListening,
+    stopListening,
+    speak,
+  };
+}
