@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage, type ToolUIPart } from "ai";
-import { LogOut, Mic, MicOff, Plus, Trash2, PanelRight, AudioLines } from "lucide-react";
+import { LogOut, Mic, MicOff, Plus, Trash2, PanelRight, AudioLines, Camera, Image as ImageIcon, Paperclip, X, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthScreen } from "@/components/AuthScreen";
@@ -12,7 +12,7 @@ import { useSession, createThread } from "@/hooks/use-session";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { Conversation, ConversationContent, ConversationEmptyState, ConversationScrollButton } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import { PromptInput, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools, PromptInputButton } from "@/components/ai-elements/prompt-input";
+import { usePromptInputAttachments, PromptInputHeader, PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInput, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools, PromptInputButton } from "@/components/ai-elements/prompt-input";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
@@ -334,6 +334,13 @@ function ChatWindow({
                 <MessageContent>
                   {m.parts.map((p, i) => {
                     if (p.type === "text") return m.role === "user" ? <p key={i}>{p.text}</p> : <MessageResponse key={i}>{p.text}</MessageResponse>;
+                    if (p.type === "file") {
+                      return p.mediaType.startsWith("image/") ? (
+                        <img key={i} src={p.url} alt={p.filename ?? "Imagen"} className="max-h-64 rounded-lg" />
+                      ) : (
+                        <div key={i} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><FileText className="h-4 w-4" />{p.filename ?? "Archivo"}</div>
+                      );
+                    }
                     if (p.type.startsWith("tool-")) {
                       const tp = p as ToolUIPart;
                       const name = tp.type.slice(5);
@@ -363,16 +370,24 @@ function ChatWindow({
           {voice.error ?? statusLabel}
         </p>
         <PromptInput
+          accept="image/*,application/pdf,text/*"
+          multiple
+          maxFiles={4}
+          maxFileSize={5 * 1024 * 1024}
+          onError={(e) => toast.error(e.code === "max_file_size" ? "Archivo demasiado grande (máx. 5 MB)" : e.code === "max_files" ? "Máximo 4 archivos" : "Tipo de archivo no admitido (imágenes, PDF o texto)")}
           onSubmit={(msg) => {
-            const t = msg.text?.trim();
-            if (!t || busy) return;
-            void sendMessage({ text: t });
+            const t = msg.text?.trim() ?? "";
+            const files = msg.files ?? [];
+            if ((!t && files.length === 0) || busy) return;
+            void sendMessage({ text: t || "Mira este archivo.", files });
             setInput("");
           }}
         >
+          <PromptInputHeader><AttachmentPreviews /></PromptInputHeader>
           <PromptInputTextarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe o habla con Atento AI…" autoFocus />
           <PromptInputFooter>
             <PromptInputTools>
+              <AttachMenu />
               <PromptInputButton
                 onClick={voice.toggle}
                 disabled={voice.status === "unsupported"}
@@ -388,5 +403,48 @@ function ChatWindow({
         </PromptInput>
       </div>
     </>
+  );
+}
+
+function AttachMenu() {
+  const att = usePromptInputAttachments();
+  const camRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) att.add(e.target.files);
+    e.target.value = "";
+  };
+  return (
+    <>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} />
+      <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={onPick} />
+      <PromptInputActionMenu>
+        <PromptInputActionMenuTrigger aria-label="Adjuntar"><Paperclip className="h-4 w-4" /></PromptInputActionMenuTrigger>
+        <PromptInputActionMenuContent>
+          <PromptInputActionMenuItem onSelect={() => camRef.current?.click()}><Camera className="mr-2 h-4 w-4" />Cámara</PromptInputActionMenuItem>
+          <PromptInputActionMenuItem onSelect={() => photoRef.current?.click()}><ImageIcon className="mr-2 h-4 w-4" />Fotos</PromptInputActionMenuItem>
+          <PromptInputActionMenuItem onSelect={() => att.openFileDialog()}><FileText className="mr-2 h-4 w-4" />Archivos</PromptInputActionMenuItem>
+        </PromptInputActionMenuContent>
+      </PromptInputActionMenu>
+    </>
+  );
+}
+
+function AttachmentPreviews() {
+  const att = usePromptInputAttachments();
+  if (att.files.length === 0) return null;
+  return (
+    <div className="flex w-full flex-wrap gap-2 p-2">
+      {att.files.map((f) => (
+        <div key={f.id} className="relative">
+          {f.mediaType?.startsWith("image/") ? (
+            <img src={f.url} alt={f.filename ?? ""} className="h-16 w-16 rounded-md object-cover" />
+          ) : (
+            <div className="flex h-16 max-w-40 items-center gap-1 rounded-md border px-2 text-xs"><FileText className="h-4 w-4 shrink-0" /><span className="truncate">{f.filename}</span></div>
+          )}
+          <button type="button" aria-label="Quitar" onClick={() => att.remove(f.id)} className="absolute -right-1 -top-1 rounded-full bg-background p-0.5 shadow"><X className="h-3 w-3" /></button>
+        </div>
+      ))}
+    </div>
   );
 }
