@@ -38,12 +38,14 @@ export function useAtentoVoice(
   const [isProcessing, setIsProcessing] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
-  // Bloquea el reconocimiento mientras Atento está hablando.
+  // Bloquea el micrófono mientras Atento está hablando.
   const assistantSpeakingRef = useRef(false);
 
-  // Indica que el usuario detuvo manualmente el micrófono.
+  // Indica que el usuario apagó manualmente el micrófono.
   const manuallyStoppedRef = useRef(false);
 
   // Evita la referencia circular entre startListening y speak.
@@ -81,7 +83,7 @@ export function useAtentoVoice(
       return;
     }
 
-    // No escuchar mientras se está procesando la solicitud.
+    // No escuchar mientras se procesa una solicitud.
     if (isProcessing) {
       return;
     }
@@ -110,7 +112,7 @@ export function useAtentoVoice(
     recognition.onresult = async (
       event: SpeechRecognitionEventLike
     ) => {
-      // Ignorar cualquier sonido capturado mientras Atento habla.
+      // Nunca procesar la voz mientras Atento está hablando.
       if (assistantSpeakingRef.current || isProcessing) {
         console.log("Resultado ignorado: Atento está ocupado.");
         return;
@@ -145,39 +147,12 @@ export function useAtentoVoice(
       setIsProcessing(true);
 
       try {
-        // Enviar el texto al asistente.
         const response = await onUserText(text);
 
         setIsProcessing(false);
 
-        // Hablar usando la referencia para evitar
-        // problemas de declaración circular.
+        // Usar la referencia para evitar dependencia circular.
         speakRef.current(response);
       } catch (error) {
         console.error(
-          "Error procesando mensaje:",
-          error
-        );
-
-        setIsProcessing(false);
-
-        speakRef.current(
-          "Lo siento, tuve un problema procesando tu solicitud."
-        );
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.log(
-        "Speech recognition:",
-        event.error
-      );
-
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition
+          "Error procesando
