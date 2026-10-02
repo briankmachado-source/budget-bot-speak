@@ -51,7 +51,7 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         try {
-          const { result, runIdFetch } = streamChat(request, sb, userId, await convertToModelMessages(messages));
+          const { result, runIdFetch } = await streamChat(request, sb, userId, await convertToModelMessages(messages));
           const res = result.toUIMessageStreamResponse({
             originalMessages: messages,
             sendReasoning: true,
