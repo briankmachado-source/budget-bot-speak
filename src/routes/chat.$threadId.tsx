@@ -56,6 +56,7 @@ function ChatShell({ threadId, email }: { threadId: string; email: string }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [panel, setPanel] = useState(false);
+  const [tab, setTab] = useState<"panel" | "historial">("panel");
   const [song, setSong] = useState<Song | null>(null);
   const [weather, setWeather] = useState<Weather | null>(null);
 
@@ -168,10 +169,45 @@ function ChatShell({ threadId, email }: { threadId: string; email: string }) {
 
       {/* Side panel */}
       <aside className={cn("w-full shrink-0 overflow-y-auto border-l bg-background p-4 lg:block lg:w-[400px]", panel ? "fixed inset-0 z-40 block lg:static" : "hidden")}>
-        <div className="mb-4 flex justify-end lg:hidden">
-          <Button size="sm" variant="ghost" onClick={() => setPanel(false)}>Cerrar panel</Button>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div className="flex rounded-lg bg-secondary p-1 text-sm" role="tablist">
+            {(["panel", "historial"] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={cn("rounded-md px-3 py-1 capitalize", tab === t ? "bg-background font-medium" : "text-muted-foreground")}
+              >
+                {t === "panel" ? "Panel" : "Historial"}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="ghost" className="lg:hidden" onClick={() => setPanel(false)}>Cerrar</Button>
         </div>
-        <FinancePanel song={null} weather={null} onCloseSong={() => {}} onCloseWeather={() => {}} />
+        {tab === "panel" ? (
+          <FinancePanel song={null} weather={null} onCloseSong={() => {}} onCloseWeather={() => {}} />
+        ) : (
+          <div className="space-y-1">
+            <Button onClick={() => { setPanel(false); newThread(); }} variant="secondary" className="mb-2 w-full justify-start gap-2">
+              <Plus className="h-4 w-4" /> Nueva conversación
+            </Button>
+            {threads.data?.length === 0 && <p className="text-sm text-muted-foreground">Aún no hay conversaciones.</p>}
+            {threads.data?.map((t) => (
+              <div key={t.id} className={cn("group flex items-center rounded-lg", t.id === threadId ? "bg-secondary" : "hover:bg-secondary/60")}>
+                <Link to="/chat/$threadId" params={{ threadId: t.id }} onClick={() => setPanel(false)} className="min-w-0 flex-1 px-3 py-2">
+                  <p className="truncate text-sm">{t.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(t.updated_at).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}
+                  </p>
+                </Link>
+                <button onClick={() => removeThread(t.id)} aria-label="Eliminar conversación" className="mr-2 text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </aside>
 
       {/* Floating music always mounted so it keeps playing */}
