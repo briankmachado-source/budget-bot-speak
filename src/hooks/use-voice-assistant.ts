@@ -2,8 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const SILENCE_AFTER_RESPONSE = 2000;
 
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+  confidence?: number;
+}
+
+interface SpeechRecognitionResultLike {
+  readonly length: number;
+  readonly isFinal?: boolean;
+  item(index: number): SpeechRecognitionAlternativeLike;
+  [index: number]: SpeechRecognitionAlternativeLike;
+}
+
+interface SpeechRecognitionResultListLike {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResultLike;
+  [index: number]: SpeechRecognitionResultLike;
+}
+
 interface SpeechRecognitionEventLike extends Event {
-  results: SpeechRecognitionResultList;
+  results: SpeechRecognitionResultListLike;
 }
 
 interface SpeechRecognitionErrorEventLike extends Event {
