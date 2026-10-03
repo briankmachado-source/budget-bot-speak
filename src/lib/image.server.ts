@@ -7,7 +7,7 @@ async function toBlob(src: string): Promise<Blob> {
     const bin = atob(m[2]!);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new Blob([bytes], { type: m[1] });
+    return new Blob([bytes], { type: m[1]! });
   }
   const r = await fetch(src);
   if (!r.ok) throw new Error("No pude leer la imagen");
