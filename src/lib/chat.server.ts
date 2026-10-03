@@ -6,6 +6,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { createLovableAiGatewayRunIdFetch, getLovableAiGatewayRunId } from "./ai/run-id";
 import { getWeather } from "./weather.server";
 import { searchSong } from "./youtube.server";
+import { transformImage, saveImage } from "./image.server";
 
 export const CATEGORIES = [
   "Mercado", "Transporte", "Vivienda", "Servicios", "Salud", "Educación", "Entretenimiento",
@@ -19,8 +20,25 @@ function bogotaNow() {
   });
 }
 
-export function buildTools(sb: SupabaseClient<Database>, userId: string) {
+export function buildTools(sb: SupabaseClient<Database>, userId: string, lastImage?: string) {
   return {
+    editar_imagen: tool({
+      description: "Transforma o edita la última imagen que el usuario adjuntó (o la última imagen generada), o crea una imagen nueva desde cero. Úsala cuando pida convertir una imagen en caricatura/animación/dibujo, cambiar fondo, quitar o agregar cosas, cambiar estilo, o generar una imagen.",
+      inputSchema: z.object({
+        instruccion: z.string().describe("Instrucción detallada en inglés o español de la transformación; indica qué debe conservarse"),
+        usar_imagen: z.boolean().describe("true si se debe transformar la imagen existente, false para crear una nueva"),
+      }),
+      execute: async ({ instruccion, usar_imagen }) => {
+        if (usar_imagen && !lastImage) return { ok: false, error: "No hay ninguna imagen adjunta. Pide al usuario que adjunte una." };
+        try {
+          const b64 = await transformImage(instruccion, usar_imagen ? lastImage : undefined);
+          const url = await saveImage(userId, b64);
+          return { ok: true, imagen_url: url, nota: "La imagen ya se muestra al usuario; no repitas la URL." };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : "No se pudo procesar la imagen" };
+        }
+      },
+    }),
     registrar_transaccion: tool({
       description: "Registra un gasto o ingreso del usuario en pesos colombianos.",
       inputSchema: z.object({
@@ -149,7 +167,7 @@ async function buildContext(sb: SupabaseClient<Database>) {
   return `MEMORIA A LARGO PLAZO DEL USUARIO:\n${memories}\n\nESTADO ACTUAL (para ser proactivo):\nMes: ingresos ${ing}, gastos ${gas}, balance ${ing - gas}. Mayores gastos: ${top || "sin datos"}.\nRecordatorios próximos 48h:\n${reminders}`;
 }
 
-export async function streamChat(request: Request, sb: SupabaseClient<Database>, userId: string, messages: ModelMessage[]) {
+export async function streamChat(request: Request, sb: SupabaseClient<Database>, userId: string, messages: ModelMessage[], lastImage?: string) {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("Falta la configuración de IA.");
   const runIdFetch = createLovableAiGatewayRunIdFetch(getLovableAiGatewayRunId(request));
@@ -164,7 +182,7 @@ export async function streamChat(request: Request, sb: SupabaseClient<Database>,
 Fecha y hora actual en Colombia (UTC-05:00): ${bogotaNow()}.
 Los mensajes suelen venir transcritos de voz y pueden tener errores: interpreta la intención. Ignora saludos o palabras de activación como "hola" o "Atento AI".
 Puedes hablar de cualquier tema (cultura, ciencia, cocina, consejos, cálculos, traducciones, programación). No tienes noticias ni resultados deportivos en tiempo real: dilo con honestidad.
-Usa las herramientas cuando el usuario pida: registrar gastos/ingresos (moneda COP, montos enteros), consultar sus finanzas o recordatorios, crear recordatorios (si solo da día sin hora usa 09:00; "en N minutos/días" se calcula desde ahora; si no queda claro cuándo, pregunta), clima, poner o detener música.
+Usa las herramientas cuando el usuario pida: registrar gastos/ingresos (moneda COP, montos enteros), consultar sus finanzas o recordatorios, crear recordatorios (si solo da día sin hora usa 09:00; "en N minutos/días" se calcula desde ahora; si no queda claro cuándo, pregunta), clima, poner o detener música, y editar_imagen para transformar imágenes (animación, caricatura, cambiar fondo, estilos, etc.) o crear imágenes nuevas. No puedes crear video: si piden "animación", genera la imagen en estilo animado/caricatura y acláralo.
 
 APRENDIZAJE CONTINUO: cada vez que detectes un dato duradero del usuario (nombre, familia, ciudad, trabajo, metas, gustos, hábitos, patrones de gasto, cómo prefiere que le respondas) llama a guardar_recuerdo en silencio, sin anunciarlo. Usa siempre la memoria para personalizar (llámalo por su nombre, usa su ciudad para el clima, su música favorita, su estilo preferido). Si un dato cambia, guarda el nuevo. Solo muestra o borra recuerdos si el usuario lo pide.
 
@@ -178,7 +196,7 @@ Tus respuestas se leen en voz alta: sé natural y conciso (normalmente 1 a 4 fra
     model: provider.responses("openai/gpt-6-astra"),
     system,
     messages,
-    tools: buildTools(sb, userId),
+    tools: buildTools(sb, userId, lastImage),
     stopWhen: stepCountIs(50),
     abortSignal: request.signal,
     providerOptions: {

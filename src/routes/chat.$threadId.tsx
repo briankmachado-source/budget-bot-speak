@@ -42,6 +42,7 @@ const TOOL_LABELS: Record<string, string> = {
   consultar_clima: "Consultar clima",
   poner_cancion: "Buscar canción",
   detener_musica: "Detener música",
+  editar_imagen: "Procesar imagen",
 };
 
 function ChatRoute() {
@@ -344,6 +345,13 @@ function ChatWindow({
                     if (p.type.startsWith("tool-")) {
                       const tp = p as ToolUIPart;
                       const name = tp.type.slice(5);
+                      if (name === "editar_imagen") {
+                        const out = tp.output as { imagen_url?: string; error?: string } | undefined;
+                        if (tp.state !== "output-available" && tp.state !== "output-error") return <Shimmer key={i} className="text-sm">Procesando imagen…</Shimmer>;
+                        if (out?.imagen_url) return (
+                          <a key={i} href={out.imagen_url} target="_blank" rel="noreferrer"><img src={out.imagen_url} alt="Imagen procesada" className="max-h-96 rounded-lg" /></a>
+                        );
+                      }
                       return (
                         <Tool key={i} defaultOpen={false}>
                           <ToolHeader type={tp.type} state={tp.state} title={TOOL_LABELS[name] ?? name} />
