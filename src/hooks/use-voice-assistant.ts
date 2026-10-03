@@ -1,316 +1,684 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const SILENCE_AFTER_RESPONSE = 2000;
+const COMMAND_TIMEOUT_MS = 20_000;
+const SPEECH_TIMEOUT_MS = 15_000;
 
-interface SpeechRecognitionAlternativeLike {
-  transcript: string;
-  confidence?: number;
-}
+// Tiempo de silencio antes de procesar el comando.
+// 2 segundos.
+const SILENCE_DELAY_MS = 2_000;
 
-interface SpeechRecognitionResultLike {
-  readonly length: number;
-  readonly isFinal?: boolean;
-  item(index: number): SpeechRecognitionAlternativeLike;
-  [index: number]: SpeechRecognitionAlternativeLike;
-}
+type Status =
+  | "idle"
+  | "listening"
+  | "processing"
+  | "speaking"
+  | "unsupported";
 
-interface SpeechRecognitionResultListLike {
-  readonly length: number;
-  item(index: number): SpeechRecognitionResultLike;
-  [index: number]: SpeechRecognitionResultLike;
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRecognition = any;
 
-interface SpeechRecognitionEventLike extends Event {
-  results: SpeechRecognitionResultListLike;
-}
-
-interface SpeechRecognitionErrorEventLike extends Event {
-  error: string;
-}
-
-interface SpeechRecognitionLike {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  }
-}
-
-export function useAtentoVoice(
-  onUserText: (text: string) => Promise<string>
+export function useVoiceAssistant(
+  onCommand: (text: string) => Promise<string>,
 ) {
-  const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [status, setStatus] = useState<Status>("idle");
+  const [enabled, setEnabled] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const recRef = useRef<AnyRecognition>(null);
 
-  // Bloquea el micrófono mientras Atento está hablando.
-  const assistantSpeakingRef = useRef(false);
+  const enabledRef = useRef(false);
+  const busyRef = useRef(false);
+  const activeRef = useRef(false);
 
-  // Indica que el usuario apagó manualmente el micrófono.
-  const manuallyStoppedRef = useRef(false);
+  // IMPORTANTE:
+  // Evita que el reconocimiento vuelva a activarse
+  // mientras Atento AI está hablando.
+  const speakingRef = useRef(false);
 
-  // Evita la referencia circular entre startListening y speak.
-  const speakRef = useRef<(text: string) => void>(() => {});
+  const mountedRef = useRef(true);
 
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
+  const restartTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const stopListening = useCallback(() => {
-    manuallyStoppedRef.current = true;
+  const silenceTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Guarda todo lo que el usuario ha dicho antes
+  // de llegar a los 2 segundos de silencio.
+  const commandBufferRef = useRef("");
+
+  const lastCommandRef = useRef("");
+
+  const cmdRef = useRef(onCommand);
+  cmdRef.current = onCommand;
+
+  // ------------------------------------------------------------
+  // LIMPIAR TEMPORIZADOR DE REINICIO
+  // ------------------------------------------------------------
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+    }
+
+    restartTimerRef.current = null;
+  }, []);
+
+  // ------------------------------------------------------------
+  // LIMPIAR TEMPORIZADOR DE SILENCIO
+  // ------------------------------------------------------------
+
+  const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
     }
 
-    try {
-      recognitionRef.current?.abort();
-    } catch (error) {
-      console.log("Error deteniendo reconocimiento:", error);
-    }
-
-    setIsListening(false);
+    silenceTimerRef.current = null;
   }, []);
 
-  const startListening = useCallback(() => {
-    if (!SpeechRecognition) {
-      console.error("Speech Recognition no está disponible.");
-      return;
-    }
+  // ------------------------------------------------------------
+  // INICIAR ESCUCHA
+  // ------------------------------------------------------------
 
-    // Nunca activar el micrófono mientras Atento habla.
-    if (assistantSpeakingRef.current) {
-      console.log("Micrófono bloqueado: Atento está hablando.");
-      return;
-    }
+  const startListening = useCallback(
+    (delay = 0) => {
+      clearRestartTimer();
 
-    // No escuchar mientras se procesa una solicitud.
-    if (isProcessing) {
-      return;
-    }
-
-    manuallyStoppedRef.current = false;
-
-    try {
-      recognitionRef.current?.abort();
-    } catch {}
-
-    const recognition = new SpeechRecognition();
-
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "es-CO";
-
-    recognition.onstart = () => {
-      if (assistantSpeakingRef.current || isProcessing) {
-        recognition.abort();
+      if (
+        !enabledRef.current ||
+        busyRef.current ||
+        speakingRef.current ||
+        !mountedRef.current
+      ) {
         return;
       }
 
-      setIsListening(true);
-    };
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
 
-    recognition.onresult = async (
-      event: SpeechRecognitionEventLike
-    ) => {
-      // Nunca procesar la voz mientras Atento está hablando.
-      if (assistantSpeakingRef.current || isProcessing) {
-        console.log("Resultado ignorado: Atento está ocupado.");
-        return;
-      }
-
-      // Obtener el último resultado de forma segura.
-      const lastResult =
-        event.results[event.results.length - 1];
-
-      if (!lastResult) {
-        return;
-      }
-
-      const alternative = lastResult[0];
-
-      if (!alternative) {
-        return;
-      }
-
-      const text = alternative.transcript.trim();
-
-      if (!text) {
-        return;
-      }
-
-      // Apagar inmediatamente el micrófono.
-      try {
-        recognition.abort();
-      } catch {}
-
-      setIsListening(false);
-      setIsProcessing(true);
-
-      try {
-        const response = await onUserText(text);
-
-        setIsProcessing(false);
-
-        // Usar la referencia para evitar dependencia circular.
-        speakRef.current(response);
-      } catch (error) {
-        console.error(
-          "Error procesando mensaje:",
-          error
-        );
-
-        setIsProcessing(false);
-
-        speakRef.current(
-          "Lo siento, tuve un problema procesando tu solicitud."
-        );
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.log(
-        "Speech recognition:",
-        event.error
-      );
-
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-
-    try {
-      recognition.start();
-    } catch (error) {
-      console.log(
-        "No se pudo iniciar el micrófono:",
-        error
-      );
-    }
-  }, [SpeechRecognition, isProcessing, onUserText]);
-
-  const speak = useCallback(
-    (text: string) => {
-      if (!text?.trim()) {
-        return;
-      }
-
-      // Cancelar cualquier respuesta de voz anterior.
-      window.speechSynthesis.cancel();
-
-      // Bloquear el micrófono antes de hablar.
-      assistantSpeakingRef.current = true;
-
-      // Cancelar cualquier temporizador anterior.
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
-
-      // Detener reconocimiento inmediatamente.
-      try {
-        recognitionRef.current?.abort();
-      } catch {}
-
-      setIsListening(false);
-      setIsSpeaking(true);
-
-      const utterance =
-        new SpeechSynthesisUtterance(text);
-
-      utterance.lang = "es-CO";
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      utterance.onstart = () => {
-        // Mantener bloqueado el micrófono.
-        assistantSpeakingRef.current = true;
-
-        setIsSpeaking(true);
-        setIsListening(false);
-      };
-
-      utterance.onend = () => {
-        setIsSpeaking(false);
-
-        // Esperar 2 segundos después de terminar de hablar.
-        silenceTimerRef.current = setTimeout(() => {
-          assistantSpeakingRef.current = false;
-
-          if (!manuallyStoppedRef.current) {
-            startListening();
-          }
-        }, SILENCE_AFTER_RESPONSE);
-      };
-
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
+        if (
+          !enabledRef.current ||
+          busyRef.current ||
+          speakingRef.current ||
+          activeRef.current ||
+          !mountedRef.current
+        ) {
+          return;
         }
 
-        // También esperar 2 segundos después de un error.
-        silenceTimerRef.current = setTimeout(() => {
-          assistantSpeakingRef.current = false;
+        try {
+          recRef.current?.start();
+        } catch {
+          activeRef.current = false;
 
-          if (!manuallyStoppedRef.current) {
-            startListening();
+          if (
+            enabledRef.current &&
+            !busyRef.current &&
+            !speakingRef.current
+          ) {
+            startListening(700);
           }
-        }, SILENCE_AFTER_RESPONSE);
-      };
-
-      // Iniciar respuesta de voz.
-      window.speechSynthesis.speak(utterance);
+        }
+      }, delay);
     },
-    [startListening]
+    [clearRestartTimer],
   );
 
-  // Mantener siempre disponible la versión actual de speak.
-  speakRef.current = speak;
+  // ------------------------------------------------------------
+  // DETENER MICRÓFONO
+  // ------------------------------------------------------------
+
+  const stopListening = useCallback(() => {
+    clearRestartTimer();
+    clearSilenceTimer();
+
+    activeRef.current = false;
+
+    try {
+      recRef.current?.stop();
+    } catch {}
+
+  }, [
+    clearRestartTimer,
+    clearSilenceTimer,
+  ]);
+
+  // ------------------------------------------------------------
+  // RESPUESTA HABLADA
+  // ------------------------------------------------------------
+
+  const speak = useCallback(
+    (text: string) =>
+      new Promise<void>((resolve) => {
+        if (
+          typeof window === "undefined" ||
+          !window.speechSynthesis
+        ) {
+          resolve();
+          return;
+        }
+
+        // Marcar que Atento AI está hablando.
+        // Esto impide que onend vuelva a activar el micrófono.
+        speakingRef.current = true;
+
+        // Detener cualquier reconocimiento que pudiera
+        // haber quedado activo.
+        try {
+          recRef.current?.stop();
+        } catch {}
+
+        // Cancelar cualquier frase anterior.
+        window.speechSynthesis.cancel();
+
+        let finished = false;
+
+        const finish = () => {
+          if (finished) {
+            return;
+          }
+
+          finished = true;
+
+          clearTimeout(timeout);
+
+          // Atento AI ya terminó de hablar.
+          speakingRef.current = false;
+
+          resolve();
+        };
+
+        const timeout = setTimeout(
+          finish,
+          SPEECH_TIMEOUT_MS,
+        );
+
+        const utterance =
+          new SpeechSynthesisUtterance(text);
+
+        utterance.lang = "es-CO";
+
+        utterance.rate = 1;
+        utterance.pitch = 1;
+
+        const voice = window.speechSynthesis
+          .getVoices()
+          .find((v) =>
+            v.lang
+              .toLowerCase()
+              .startsWith("es"),
+          );
+
+        if (voice) {
+          utterance.voice = voice;
+        }
+
+        // Cuando termina de hablar.
+        utterance.onend = finish;
+
+        // Si ocurre un error también liberamos
+        // el bloqueo del micrófono.
+        utterance.onerror = finish;
+
+        window.speechSynthesis.speak(
+          utterance,
+        );
+      }),
+    [],
+  );
+
+  // ------------------------------------------------------------
+  // PROCESAR COMANDO
+  // ------------------------------------------------------------
+
+  const handle = useCallback(
+    async (text: string) => {
+      const command = text.trim();
+
+      if (command.length < 3) {
+        return;
+      }
+
+      if (
+        busyRef.current ||
+        !enabledRef.current
+      ) {
+        return;
+      }
+
+      // Evitar comandos duplicados.
+      if (command === lastCommandRef.current) {
+        return;
+      }
+
+      lastCommandRef.current = command;
+
+      busyRef.current = true;
+
+      clearSilenceTimer();
+
+      // Limpiar el buffer antes de procesar.
+      commandBufferRef.current = "";
+
+      setInterim("");
+      setStatus("processing");
+
+      // --------------------------------------------------------
+      // MUY IMPORTANTE:
+      // apagar micrófono ANTES de procesar.
+      // --------------------------------------------------------
+
+      stopListening();
+
+      try {
+        const reply = await Promise.race([
+          cmdRef.current(command),
+
+          new Promise<string>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new Error(
+                  "El asistente tardó demasiado en responder.",
+                ),
+              );
+            }, COMMAND_TIMEOUT_MS);
+          }),
+        ]);
+
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setStatus("speaking");
+
+        // ------------------------------------------------------
+        // ATENTO AI HABLA
+        //
+        // El micrófono permanece apagado durante toda
+        // la respuesta.
+        // ------------------------------------------------------
+
+        await speak(reply);
+
+      } catch (e) {
+        if (!mountedRef.current) {
+          return;
+        }
+
+        const message =
+          e instanceof Error
+            ? e.message
+            : "No pude procesar tu comando.";
+
+        setError(message);
+
+        setStatus("speaking");
+
+        await speak(
+          "No pude procesar eso. Intenta de nuevo.",
+        );
+
+      } finally {
+        // Asegurarnos de que el bloqueo se libere.
+        speakingRef.current = false;
+
+        busyRef.current = false;
+
+        if (mountedRef.current) {
+          setStatus(
+            enabledRef.current
+              ? "listening"
+              : "idle",
+          );
+
+          // ----------------------------------------------------
+          // Cuando Atento AI termina de hablar,
+          // volvemos a activar el micrófono.
+          // ----------------------------------------------------
+
+          if (
+            enabledRef.current &&
+            !speakingRef.current
+          ) {
+            startListening(300);
+          }
+        }
+      }
+    },
+    [
+      clearSilenceTimer,
+      speak,
+      startListening,
+      stopListening,
+    ],
+  );
+
+  // ------------------------------------------------------------
+  // CONFIGURAR RECONOCIMIENTO DE VOZ
+  // ------------------------------------------------------------
 
   useEffect(() => {
-    return () => {
-      try {
-        recognitionRef.current?.abort();
-      } catch {}
+    mountedRef.current = true;
 
-      window.speechSynthesis.cancel();
+    const SR =
+      (window as AnyRecognition).SpeechRecognition ||
+      (window as AnyRecognition)
+        .webkitSpeechRecognition;
 
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
+    if (!SR) {
+      setStatus("unsupported");
+      return;
+    }
+
+    const rec = new SR();
+
+    rec.lang = "es-CO";
+
+    // Escucha continua.
+    rec.continuous = true;
+
+    // Resultados provisionales.
+    rec.interimResults = true;
+
+    rec.maxAlternatives = 1;
+
+    // ----------------------------------------------------------
+    // COMIENZA A ESCUCHAR
+    // ----------------------------------------------------------
+
+    rec.onstart = () => {
+      activeRef.current = true;
+
+      setError(null);
+
+      if (
+        enabledRef.current &&
+        !busyRef.current &&
+        !speakingRef.current
+      ) {
+        setStatus("listening");
       }
     };
-  }, []);
+
+    // ----------------------------------------------------------
+    // RECIBE VOZ
+    // ----------------------------------------------------------
+
+    rec.onresult = (e: AnyRecognition) => {
+      // Si Atento AI está hablando, ignoramos completamente
+      // cualquier resultado que pudiera llegar.
+      if (
+        speakingRef.current ||
+        busyRef.current
+      ) {
+        return;
+      }
+
+      let newFinalText = "";
+      let newInterimText = "";
+
+      for (
+        let i = e.resultIndex;
+        i < e.results.length;
+        i++
+      ) {
+        const result = e.results[i];
+
+        const transcript =
+          result[0]?.transcript?.trim() ?? "";
+
+        if (!transcript) {
+          continue;
+        }
+
+        if (result.isFinal) {
+          newFinalText += `${transcript} `;
+        } else {
+          newInterimText += `${transcript} `;
+        }
+      }
+
+      newFinalText = newFinalText.trim();
+      newInterimText = newInterimText.trim();
+
+      // --------------------------------------------------------
+      // AGREGAR TEXTO FINAL
+      // --------------------------------------------------------
+
+      if (newFinalText) {
+        if (commandBufferRef.current) {
+          commandBufferRef.current +=
+            ` ${newFinalText}`;
+        } else {
+          commandBufferRef.current =
+            newFinalText;
+        }
+      }
+
+      // --------------------------------------------------------
+      // MOSTRAR LO QUE ESTAMOS ESCUCHANDO
+      // --------------------------------------------------------
+
+      const displayText = [
+        commandBufferRef.current,
+        newInterimText,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      if (displayText) {
+        setInterim(displayText);
+      }
+
+      // --------------------------------------------------------
+      // REINICIAR LOS 2 SEGUNDOS DE SILENCIO
+      // --------------------------------------------------------
+
+      if (
+        newFinalText ||
+        newInterimText
+      ) {
+        clearSilenceTimer();
+
+        silenceTimerRef.current =
+          setTimeout(() => {
+            silenceTimerRef.current = null;
+
+            if (
+              busyRef.current ||
+              speakingRef.current ||
+              !enabledRef.current
+            ) {
+              return;
+            }
+
+            const command =
+              commandBufferRef.current.trim();
+
+            if (command.length > 2) {
+              void handle(command);
+            }
+
+          }, SILENCE_DELAY_MS);
+      }
+    };
+
+    // ----------------------------------------------------------
+    // RECONOCIMIENTO TERMINÓ
+    // ----------------------------------------------------------
+
+    rec.onend = () => {
+      activeRef.current = false;
+
+      // NO reiniciar el micrófono si:
+      //
+      // - el usuario lo desactivó
+      // - estamos procesando
+      // - Atento AI está hablando
+      //
+      if (
+        enabledRef.current &&
+        !busyRef.current &&
+        !speakingRef.current
+      ) {
+        startListening(400);
+      }
+    };
+
+    // ----------------------------------------------------------
+    // ERRORES
+    // ----------------------------------------------------------
+
+    rec.onerror = (e: AnyRecognition) => {
+      activeRef.current = false;
+
+      if (e.error === "not-allowed") {
+        enabledRef.current = false;
+
+        setEnabled(false);
+        setStatus("idle");
+
+        setError(
+          "El micrófono está bloqueado. Permite su uso en el navegador y vuelve a activarlo.",
+        );
+
+        clearRestartTimer();
+        clearSilenceTimer();
+
+        return;
+      }
+
+      if (e.error === "audio-capture") {
+        setError(
+          "No pude acceder al micrófono. Revisa que no esté siendo usado por otra aplicación.",
+        );
+      } else if (
+        e.error !== "aborted" &&
+        e.error !== "no-speech"
+      ) {
+        setError(
+          "La escucha se interrumpió. Reintentando…",
+        );
+      }
+
+      // No intentar reiniciar mientras Atento AI habla.
+      if (
+        e.error !== "aborted" &&
+        enabledRef.current &&
+        !busyRef.current &&
+        !speakingRef.current
+      ) {
+        startListening(
+          e.error === "network"
+            ? 1500
+            : 700,
+        );
+      }
+    };
+
+    recRef.current = rec;
+
+    // ----------------------------------------------------------
+    // LIMPIEZA
+    // ----------------------------------------------------------
+
+    return () => {
+      mountedRef.current = false;
+
+      enabledRef.current = false;
+
+      busyRef.current = false;
+      speakingRef.current = false;
+      activeRef.current = false;
+
+      clearRestartTimer();
+      clearSilenceTimer();
+
+      commandBufferRef.current = "";
+
+      try {
+        rec.stop();
+      } catch {}
+
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {}
+    };
+  }, [
+    clearRestartTimer,
+    clearSilenceTimer,
+    handle,
+    startListening,
+  ]);
+
+  // ------------------------------------------------------------
+  // ACTIVAR / DESACTIVAR
+  // ------------------------------------------------------------
+
+  const toggle = useCallback(() => {
+    const rec = recRef.current;
+
+    if (!rec) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // DESACTIVAR
+    // ----------------------------------------------------------
+
+    if (enabledRef.current) {
+      enabledRef.current = false;
+
+      setEnabled(false);
+      setStatus("idle");
+      setInterim("");
+
+      clearRestartTimer();
+      clearSilenceTimer();
+
+      commandBufferRef.current = "";
+
+      try {
+        rec.stop();
+      } catch {}
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // ACTIVAR
+    // ----------------------------------------------------------
+
+    lastCommandRef.current = "";
+    commandBufferRef.current = "";
+
+    enabledRef.current = true;
+
+    setEnabled(true);
+    setStatus("listening");
+    setError(null);
+
+    clearSilenceTimer();
+
+    startListening();
+  }, [
+    clearRestartTimer,
+    clearSilenceTimer,
+    startListening,
+  ]);
+
+  // ------------------------------------------------------------
+  // RESULTADO DEL HOOK
+  // ------------------------------------------------------------
 
   return {
-    isListening,
-    isSpeaking,
-    isProcessing,
-    startListening,
-    stopListening,
-    speak,
+    status,
+    enabled,
+    interim,
+    error,
+    toggle,
+    sendText: handle,
   };
 }
