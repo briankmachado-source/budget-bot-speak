@@ -53,9 +53,9 @@ export const Route = createFileRoute("/api/chat")({
         try {
           let lastImage: string | undefined;
           for (const m of messages) for (const p of m.parts as Array<Record<string, unknown>>) {
-            if (p.type === "file" && String(p.mediaType ?? "").startsWith("image/")) lastImage = String(p.url);
-            if (p.type === "tool-editar_imagen" && p.state === "output-available") {
-              const o = p.output as { imagen_url?: string } | undefined;
+            if (p["type"] === "file" && String(p["mediaType"] ?? "").startsWith("image/")) lastImage = String(p["url"]);
+            if (p["type"] === "tool-editar_imagen" && p["state"] === "output-available") {
+              const o = p["output"] as { imagen_url?: string } | undefined;
               if (o?.imagen_url) lastImage = o.imagen_url;
             }
           }
