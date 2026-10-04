@@ -1,360 +1,181 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const COMMAND_TIMEOUT_MS = 20_000;
-const SPEECH_TIMEOUT_MS = 60_000;
-const SILENCE_DELAY_MS = 2_000;
-
-// Tiempo que esperamos DESPUÉS de que Atento AI termina de hablar
-// antes de volver a encender el reconocimiento.
-const RESTART_AFTER_SPEECH_MS = 2_000;
-
-// Pequeña espera cuando Chrome termina el reconocimiento por su cuenta.
-const RESTART_AFTER_RECOGNITION_END_MS = 400;
-
-type RecognitionResult = {
-  0?: {
-    transcript?: string;
-  };
-  isFinal: boolean;
-};
-
-type RecognitionEvent = {
-  resultIndex: number;
-  results: {
-    length: number;
-    [index: number]: RecognitionResult | undefined;
-  };
-};
-
-type RecognitionErrorEvent = {
-  error?: string;
-};
-
+type RecResult = { isFinal: boolean; 0: { transcript: string } };
+type RecEvent = { resultIndex: number; results: ArrayLike<RecResult> };
 type Recognition = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   maxAlternatives: number;
-  onstart: (() => void) | null;
-  onresult: ((event: RecognitionEvent) => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: RecognitionErrorEvent) => void) | null;
   start: () => void;
-  stop: () => void;
   abort: () => void;
+  onresult: ((e: RecEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
 };
 
-type RecognitionConstructor = new () => Recognition;
+type Status = "idle" | "listening" | "processing" | "speaking" | "unsupported";
 
-type WindowWithRecognition = Window & {
-  SpeechRecognition?: RecognitionConstructor;
-  webkitSpeechRecognition?: RecognitionConstructor;
-};
+const WAKE = /^\s*(hola\s+)?(atento\s*(ai|ia|a\s*i)?)?[\s,.:!¡]*/i;
+const AFTER_SPEECH_MS = 900;
 
-type Status =
-  | "idle"
-  | "listening"
-  | "processing"
-  | "speaking"
-  | "unsupported";
+function getCtor(): (new () => Recognition) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
-export function useVoiceAssistant(
-  onCommand: (text: string) => Promise<string>,
-) {
+function cleanForSpeech(t: string) {
+  return t.replace(/[*_#`>|]/g, "").replace(/\[(.*?)\]\(.*?\)/g, "$1").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Voice loop: one phrase per recognition session (continuous=false avoids the
+ * repeated/duplicated words Chrome on Android produces in continuous mode).
+ * The mic is fully off while waiting for the answer and while speaking, so the
+ * assistant never hears itself; it restarts automatically afterwards.
+ */
+export function useVoiceAssistant(onCommand: (text: string) => Promise<string>) {
   const [status, setStatus] = useState<Status>("idle");
   const [enabled, setEnabled] = useState(false);
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const recRef = useRef<Recognition | null>(null);
-
   const enabledRef = useRef(false);
-  const busyRef = useRef(false);
+  const lockedRef = useRef(false); // processing or speaking
   const activeRef = useRef(false);
-
-  // BLOQUEO PRINCIPAL.
-  // Mientras Atento AI habla, el reconocimiento no puede procesar nada.
-  const speakingRef = useRef(false);
-
-  // Mantiene bloqueado el micrófono hasta esta fecha.
-  // Sirve para evitar que el reconocimiento capture el final
-  // de la voz de Atento AI.
-  const cooldownUntilRef = useRef(0);
-
-  const mountedRef = useRef(true);
-
-  const restartTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const silenceTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const commandBufferRef = useRef("");
-
-  const lastCommandRef = useRef("");
-
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRef = useRef({ text: "", at: 0 });
   const cmdRef = useRef(onCommand);
   cmdRef.current = onCommand;
 
-  // ------------------------------------------------------------
-  // LIMPIAR TIMER DE REINICIO
-  // ------------------------------------------------------------
-
-  const clearRestartTimer = useCallback(() => {
-    if (restartTimerRef.current !== null) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
+  useEffect(() => {
+    if (!getCtor()) setStatus("unsupported");
   }, []);
 
-  // ------------------------------------------------------------
-  // LIMPIAR TIMER DE SILENCIO
-  // ------------------------------------------------------------
-
-  const clearSilenceTimer = useCallback(() => {
-    if (silenceTimerRef.current !== null) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
+  const schedule = useCallback((delay: number) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      const rec = recRef.current;
+      if (!rec || !enabledRef.current || lockedRef.current || activeRef.current) return;
+      try {
+        rec.start();
+        activeRef.current = true;
+        setStatus("listening");
+      } catch {
+        schedule(700);
+      }
+    }, delay);
   }, []);
 
-  // ------------------------------------------------------------
-  // ABORTAR COMPLETAMENTE EL RECONOCIMIENTO
-  // ------------------------------------------------------------
+  const speak = useCallback(async (text: string) => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+    const clean = cleanForSpeech(text);
+    if (!synth || !clean) return;
+    synth.cancel();
+    await new Promise<void>((resolve) => {
+      const u = new SpeechSynthesisUtterance(clean);
+      u.lang = "es-CO";
+      const v = synth.getVoices().find((x) => x.lang.toLowerCase().startsWith("es"));
+      if (v) u.voice = v;
+      const t = setTimeout(resolve, Math.min(60000, 4000 + clean.length * 90));
+      u.onend = u.onerror = () => { clearTimeout(t); resolve(); };
+      synth.speak(u);
+    });
+  }, []);
 
-  const abortRecognition = useCallback(() => {
+  const handle = useCallback(async (raw: string) => {
+    const text = raw.replace(WAKE, "").trim();
+    if (text.length < 2) return;
+    const now = Date.now();
+    if (text.toLowerCase() === lastRef.current.text && now - lastRef.current.at < 4000) return;
+    lastRef.current = { text: text.toLowerCase(), at: now };
+
+    lockedRef.current = true;
+    try { recRef.current?.abort(); } catch { /* ignore */ }
     activeRef.current = false;
-
-    const rec = recRef.current;
-
-    if (!rec) {
-      return;
-    }
-
+    setInterim("");
+    setStatus("processing");
     try {
-      rec.abort();
-    } catch {
-      // El reconocimiento ya estaba detenido.
+      const reply = await cmdRef.current(text);
+      if (enabledRef.current) {
+        setStatus("speaking");
+        await speak(reply);
+      }
+    } finally {
+      lockedRef.current = false;
+      if (enabledRef.current) { setStatus("listening"); schedule(AFTER_SPEECH_MS); }
+      else setStatus("idle");
     }
+  }, [schedule, speak]);
+
+  const enable = useCallback(() => {
+    const Ctor = getCtor();
+    if (!Ctor) { setStatus("unsupported"); return; }
+    const rec = new Ctor();
+    rec.lang = "es-CO";
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      if (lockedRef.current) return; // ignore anything heard while answering
+      let fin = "", tmp = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i]!;
+        if (r.isFinal) fin += r[0].transcript; else tmp += r[0].transcript;
+      }
+      if (fin.trim()) void handle(fin);
+      else setInterim(tmp.trim());
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setError("Permite el micrófono en el navegador para usar la voz.");
+        enabledRef.current = false;
+        setEnabled(false);
+        setStatus("idle");
+      }
+    };
+    rec.onend = () => {
+      activeRef.current = false;
+      setInterim("");
+      if (enabledRef.current && !lockedRef.current) schedule(250);
+    };
+    recRef.current = rec;
+    enabledRef.current = true;
+    setEnabled(true);
+    setError(null);
+    // Unlock speech synthesis on mobile with a user gesture.
+    try { window.speechSynthesis?.speak(new SpeechSynthesisUtterance("")); } catch { /* ignore */ }
+    schedule(0);
+  }, [handle, schedule]);
+
+  const disable = useCallback(() => {
+    enabledRef.current = false;
+    setEnabled(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    try { recRef.current?.abort(); } catch { /* ignore */ }
+    recRef.current = null;
+    activeRef.current = false;
+    window.speechSynthesis?.cancel();
+    setInterim("");
+    setStatus("idle");
   }, []);
 
-  // ------------------------------------------------------------
-  // INICIAR ESCUCHA
-  // ------------------------------------------------------------
+  const toggle = useCallback(() => (enabledRef.current ? disable() : enable()), [enable, disable]);
 
-  const startListening = useCallback(
-    (delay = 0) => {
-      clearRestartTimer();
+  // Recover when returning to the app (the OS may kill the mic in background).
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible" && enabledRef.current && !lockedRef.current) schedule(300); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      try { recRef.current?.abort(); } catch { /* ignore */ }
+      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+    };
+  }, [schedule]);
 
-      if (
-        !enabledRef.current ||
-        busyRef.current ||
-        speakingRef.current ||
-        !mountedRef.current
-      ) {
-        return;
-      }
-
-      // Si todavía estamos dentro del período de protección,
-      // esperamos el tiempo restante.
-      const cooldownRemaining = Math.max(
-        0,
-        cooldownUntilRef.current - Date.now(),
-      );
-
-      const waitTime = Math.max(
-        delay,
-        cooldownRemaining,
-      );
-
-      restartTimerRef.current = setTimeout(() => {
-        restartTimerRef.current = null;
-
-        if (
-          !enabledRef.current ||
-          busyRef.current ||
-          speakingRef.current ||
-          activeRef.current ||
-          !mountedRef.current ||
-          Date.now() < cooldownUntilRef.current
-        ) {
-          return;
-        }
-
-        const rec = recRef.current;
-
-        if (!rec) {
-          return;
-        }
-
-        try {
-          rec.start();
-        } catch {
-          activeRef.current = false;
-
-          if (
-            enabledRef.current &&
-            !busyRef.current &&
-            !speakingRef.current
-          ) {
-            restartTimerRef.current = setTimeout(() => {
-              restartTimerRef.current = null;
-              startListening();
-            }, 700);
-          }
-        }
-      }, waitTime);
-    },
-    [clearRestartTimer],
-  );
-
-  // ------------------------------------------------------------
-  // DETENER MICRÓFONO
-  // ------------------------------------------------------------
-
-  const stopListening = useCallback(() => {
-    clearRestartTimer();
-    clearSilenceTimer();
-    abortRecognition();
-  }, [
-    abortRecognition,
-    clearRestartTimer,
-    clearSilenceTimer,
-  ]);
-
-  // ------------------------------------------------------------
-  // ESPERA
-  // ------------------------------------------------------------
-
-  const wait = useCallback(
-    (milliseconds: number) =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, milliseconds);
-      }),
-    [],
-  );
-
-  // ------------------------------------------------------------
-  // HABLAR
-  // ------------------------------------------------------------
-
-  const speak = useCallback(
-    async (text: string): Promise<void> => {
-      // BLOQUEAR ANTES DE CUALQUIER OPERACIÓN DE AUDIO.
-      speakingRef.current = true;
-
-      // Bloqueo indefinido mientras habla.
-      cooldownUntilRef.current = Number.MAX_SAFE_INTEGER;
-
-      clearRestartTimer();
-      clearSilenceTimer();
-
-      // APAGAR COMPLETAMENTE EL RECONOCIMIENTO.
-      abortRecognition();
-
-      setInterim("");
-
-      if (
-        typeof window === "undefined" ||
-        typeof window.speechSynthesis === "undefined" ||
-        typeof SpeechSynthesisUtterance === "undefined"
-      ) {
-        await wait(RESTART_AFTER_SPEECH_MS);
-
-        cooldownUntilRef.current = Date.now();
-        speakingRef.current = false;
-
-        return;
-      }
-
-      const synth = window.speechSynthesis;
-
-      // Cancelar cualquier audio anterior.
-      synth.cancel();
-
-      await new Promise<void>((resolve) => {
-        let finished = false;
-
-        const finish = () => {
-          if (finished) {
-            return;
-          }
-
-          finished = true;
-
-          clearTimeout(timeout);
-
-          resolve();
-        };
-
-        const timeout = setTimeout(
-          finish,
-          SPEECH_TIMEOUT_MS,
-        );
-
-        const utterance =
-          new SpeechSynthesisUtterance(text);
-
-        utterance.lang = "es-CO";
-        utterance.rate = 1;
-        utterance.pitch = 1;
-
-        const voice = synth
-          .getVoices()
-          .find((item) =>
-            item.lang
-              .toLowerCase()
-              .startsWith("es"),
-          );
-
-        if (voice) {
-          utterance.voice = voice;
-        }
-
-        utterance.onend = finish;
-        utterance.onerror = finish;
-
-        synth.speak(utterance);
-      });
-
-      // --------------------------------------------------------
-      // AQUÍ ESTÁ LA PROTECCIÓN CONTRA EL ECO.
-      //
-      // Aunque speechSynthesis ya terminó, NO encendemos
-      // inmediatamente el micrófono.
-      // --------------------------------------------------------
-
-      cooldownUntilRef.current =
-        Date.now() + RESTART_AFTER_SPEECH_MS;
-
-      await wait(RESTART_AFTER_SPEECH_MS);
-
-      // Finaliza el bloqueo.
-      cooldownUntilRef.current = Date.now();
-
-      speakingRef.current = false;
-    },
-    [
-      abortRecognition,
-      clearRestartTimer,
-      clearSilenceTimer,
-      wait,
-    ],
-  );
-
-  // ------------------------------------------------------------
-  // PROCESAR COMANDO
-  // ------------------------------------------------------------
-
-  const handle = useCallback(
-    async (text: string) => {
-      const command = text.trim();
-
-      if (command.length < 3) {
-        return;
-      }
-
-      if (
-        busyRef.current ||
-        !enabledRef.current ||
-        speakingRef.current
+  return { status, enabled, interim, error, toggle, speak };
+}
