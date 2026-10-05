@@ -265,7 +265,7 @@ function ChatWindow({
       pending.current = null;
     },
     onError: (e) => {
-      const m = e.message?.includes("429") ? "Demasiadas solicitudes, intenta en un momento." : e.message?.includes("402") ? "Se agotaron los créditos de IA." : "No pude responder. Intenta de nuevo.";
+      const m = e.message?.includes("429") ? "Demasiadas solicitudes, intenta en un momento." : (e.message?.includes("402") || e.message?.includes("créditos")) ? "Se agotaron los créditos de IA." : "No pude responder. Intenta de nuevo.";
       toast.error(m);
       pending.current?.(m);
       pending.current = null;
