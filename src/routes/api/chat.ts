@@ -74,7 +74,7 @@ export const Route = createFileRoute("/api/chat")({
             onError: (e) => {
               const m = e instanceof Error ? e.message : String(e);
               if (m.includes("429")) return "Demasiadas solicitudes, intenta en un momento.";
-              if (m.includes("402")) return "Se agotaron los créditos de IA.";
+              if (m.includes("402") || m.includes("Payment Required")) return "Se agotaron los créditos de IA.";
               return "El asistente tuvo un problema. Intenta de nuevo.";
             },
           });
