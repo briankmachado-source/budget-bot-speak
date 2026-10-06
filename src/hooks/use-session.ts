@@ -16,10 +16,3 @@ export function useSession() {
   return { session, ready };
 }
 
-export async function createThread() {
-  const { data: u } = await supabase.auth.getUser();
-  if (!u.user) throw new Error("Sin sesión");
-  const { data, error } = await supabase.from("chat_threads").insert({ user_id: u.user.id }).select("id").single();
-  if (error) throw error;
-  return data.id as string;
-}

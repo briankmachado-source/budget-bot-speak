@@ -1,12 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind, Play, Pause, Music } from "lucide-react";
+import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Weather } from "@/lib/weather.server";
-import type { Song } from "@/lib/youtube.server";
-import { Button } from "@/components/ui/button";
 import { Reminders } from "@/components/Reminders";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +14,7 @@ const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--cha
 
 type Tx = { id: string; type: string; amount: number; category: string; description: string | null; occurred_at: string };
 
-export function FinancePanel({ song, weather, onCloseSong, onCloseWeather }: { song: Song | null; weather: Weather | null; onCloseSong: () => void; onCloseWeather: () => void }) {
+export function FinancePanel({ weather, onCloseWeather }: { weather: Weather | null; onCloseWeather: () => void }) {
   const qc = useQueryClient();
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions"],
@@ -59,7 +57,6 @@ export function FinancePanel({ song, weather, onCloseSong, onCloseWeather }: { s
   }
   return (
     <div className="space-y-6">
-          {song && <MusicPlayer song={song} onClose={() => onCloseSong()} />}
           {weather && <WeatherCard w={weather} onClose={() => onCloseWeather()} />}
 
           <Reminders />
@@ -183,58 +180,6 @@ export function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void })
           <p className="flex items-center justify-end gap-1 text-muted-foreground"><Droplets className="h-3.5 w-3.5" /> {w.rainChance ?? "–"}% lluvia · {w.humidity}% hum.</p>
           <p className="flex items-center justify-end gap-1 text-muted-foreground"><Wind className="h-3.5 w-3.5" /> {w.wind} km/h</p>
         </div>
-      </div>
-    </div>
-  );
-}
-
-export function MusicPlayer({ song, onClose }: { song: Song; onClose: () => void }) {
-  const frame = useRef<HTMLIFrameElement>(null);
-  const [playing, setPlaying] = useState(true);
-
-  function command(func: "playVideo" | "pauseVideo") {
-    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
-  }
-
-  return (
-    <div className="relative overflow-hidden rounded-3xl border bg-card">
-      <button
-        onClick={onClose}
-        aria-label="Cerrar música"
-        className="absolute right-4 top-4 z-10 rounded-full bg-background/80 p-1.5 text-muted-foreground hover:text-foreground"
-      >
-        <X className="h-4 w-4" />
-      </button>
-      <div className="aspect-video w-full bg-black">
-        <iframe
-          ref={frame}
-          key={song.videoId}
-          className="h-full w-full"
-          src={`https://www.youtube-nocookie.com/embed/${song.videoId}?autoplay=1&enablejsapi=1&rel=0`}
-          title={song.title}
-          allow="accelerometer; autoplay; encrypted-media; picture-in-picture"
-          allowFullScreen
-        />
-      </div>
-      <div className="flex items-center gap-3 p-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-          <Music className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{song.title}</p>
-          <p className="truncate text-xs text-muted-foreground">{song.channel}</p>
-        </div>
-        <Button
-          size="icon"
-          variant="secondary"
-          aria-label={playing ? "Pausar" : "Reproducir"}
-          onClick={() => {
-            command(playing ? "pauseVideo" : "playVideo");
-            setPlaying((p) => !p);
-          }}
-        >
-          {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-        </Button>
       </div>
     </div>
   );
