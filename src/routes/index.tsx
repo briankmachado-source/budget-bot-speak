@@ -139,10 +139,10 @@ function TransactionForm({ userId }: { userId: string }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const n = parseAmount(amount);
-    if (!n || n <= 0) return toast.error("Escribe un monto válido");
+    if (!n || n <= 0) { toast.error("Escribe un monto válido"); return; }
     const category = cat || guessCategory(desc, type === "income");
     const { error } = await supabase.from("transactions").insert({ user_id: userId, type, amount: n, category, description: desc.trim() || null });
-    if (error) return toast.error("No se pudo guardar");
+    if (error) { toast.error("No se pudo guardar"); return; }
     toast.success("Movimiento registrado");
     setAmount(""); setDesc(""); setCat("");
     qc.invalidateQueries({ queryKey: ["transactions"] });
@@ -176,9 +176,9 @@ function ReminderForm({ userId }: { userId: string }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const at = new Date(when);
-    if (!title.trim() || isNaN(at.getTime())) return toast.error("Escribe qué recordar y cuándo");
+    if (!title.trim() || isNaN(at.getTime())) { toast.error("Escribe qué recordar y cuándo"); return; }
     const { error } = await supabase.from("reminders").insert({ user_id: userId, title: title.trim(), remind_at: at.toISOString() });
-    if (error) return toast.error("No se pudo guardar");
+    if (error) { toast.error("No se pudo guardar"); return; }
     toast.success("Recordatorio creado");
     setTitle(""); setWhen("");
     qc.invalidateQueries({ queryKey: ["reminders"] });
