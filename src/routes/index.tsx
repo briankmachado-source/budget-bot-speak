@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { LogOut, Mic, MicOff, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,9 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/hooks/use-session";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
-import { fetchWeather } from "@/lib/weather.functions";
+import { getWeather, type Weather } from "@/lib/weather";
 import { CATEGORIES, guessCategory, parseAmount, parseCommand } from "@/lib/commands";
-import type { Weather } from "@/lib/weather.server";
 
 export const Route = createFileRoute("/")({
   head: () => ({
