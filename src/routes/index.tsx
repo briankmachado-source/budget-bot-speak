@@ -41,15 +41,14 @@ function Index() {
 
 function Home({ userId, email }: { userId: string; email: string }) {
   const qc = useQueryClient();
-  const getWeather = useServerFn(fetchWeather);
-  const [weather, setWeather] = useState<Weather | null>(null);
+const [weather, setWeather] = useState<Weather | null>(null);
 
-  async function loadWeather(city: string) {
-    const w = await getWeather({ data: { city } }).catch(() => null);
-    if (w) setWeather(w);
-    return w;
-  }
-
+async function loadWeather(city: string) {
+  const w = await getWeather(city);
+  if (w) setWeather(w);
+  return w;
+}
+  
   async function onCommand(text: string): Promise<string> {
     const c = parseCommand(text);
     switch (c.kind) {
