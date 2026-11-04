@@ -9,3 +9,5 @@
 - [ ] Que el gasto aparezca al instante en el panel tras agregarlo.
 - [ ] Probar la voz con micrófono real en Chrome.
 - [ ] Probar el formulario de recordatorios.
+- [ ] Permitir borrar movimientos y recordatorios pendientes y completados desde el teléfono.
+- [ ] Convertir el panel de movimientos en control de pagos pendientes, sin modificar registros anteriores.
