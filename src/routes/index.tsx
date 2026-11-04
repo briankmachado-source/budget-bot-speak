@@ -5,7 +5,7 @@ import { LogOut, Mic, MicOff, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthScreen } from "@/components/AuthScreen";
-import { FinancePanel } from "@/components/FinancePanel";
+import { FinancePanel, WeatherCard } from "@/components/FinancePanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/hooks/use-session";
@@ -85,6 +85,7 @@ async function loadWeather(city: string) {
 
   return (
     <div className="mx-auto min-h-screen max-w-3xl space-y-6 px-4 py-6">
+      {weather && <WeatherCard w={weather} onClose={() => setWeather(null)} />}
       <header className="flex items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold">Atento AI</h1>
@@ -118,10 +119,19 @@ async function loadWeather(city: string) {
         </p>
       </section>
 
+      <WeatherSearch
+        onSearch={async (c) => {
+          const w = await loadWeather(c);
+          if (!w) {
+            toast.error(`No encontré el clima de ${c}`);
+            return `No encontré el clima de ${c}.`;
+          }
+          return `En ${w.city} hay ${w.temp} grados, ${w.condition.toLowerCase()}. Máxima ${w.max}, mínima ${w.min}.`;
+        }}
+      />
       <TransactionForm userId={userId} />
       <ReminderForm userId={userId} />
-      <FinancePanel weather={weather} onCloseWeather={() => setWeather(null)} />
-      <WeatherSearch onSearch={async (c) => { if (!(await loadWeather(c))) toast.error(`No encontré el clima de ${c}`); }} />
+      <FinancePanel />
     </div>
   );
 }
@@ -193,15 +203,28 @@ function ReminderForm({ userId }: { userId: string }) {
   );
 }
 
-function WeatherSearch({ onSearch }: { onSearch: (city: string) => void }) {
+function WeatherSearch({ onSearch }: { onSearch: (city: string) => Promise<string> }) {
   const [city, setCity] = useState("");
+  const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!city.trim() || busy) return;
+    setBusy(true);
+    setReply(await onSearch(city.trim()));
+    setBusy(false);
+  }
+
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); if (city.trim()) onSearch(city.trim()); }}
-      className="flex gap-2 rounded-3xl border bg-card p-5"
-    >
-      <Input placeholder="Consultar clima de una ciudad" value={city} onChange={(e) => setCity(e.target.value)} />
-      <Button type="submit" variant="secondary">Ver clima</Button>
+    <form onSubmit={submit} className="space-y-3 rounded-3xl border bg-card p-5">
+      <div className="flex gap-2">
+        <Input placeholder="Consultar clima de una ciudad" value={city} onChange={(e) => setCity(e.target.value)} />
+        <Button type="submit" variant="secondary" disabled={busy}>
+          {busy ? "Buscando…" : "Ver clima"}
+        </Button>
+      </div>
+      {reply && <p className="rounded-2xl bg-secondary/50 p-3 text-sm font-medium">{reply}</p>}
     </form>
   );
 }

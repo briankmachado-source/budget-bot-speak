@@ -4,7 +4,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { LogOut, Mic, MicOff, Send, Trash2, ArrowDownRight, ArrowUpRight, Sun, Cloud, CloudRain, CloudLightning, CloudFog, X, Droplets, Wind } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import type { Weather } from "@/lib/weather.server";
+import type { Weather } from "@/lib/weather";
 import { Reminders } from "@/components/Reminders";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +14,7 @@ const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--cha
 
 type Tx = { id: string; type: string; amount: number; category: string; description: string | null; occurred_at: string };
 
-export function FinancePanel({ weather, onCloseWeather }: { weather: Weather | null; onCloseWeather: () => void }) {
+export function FinancePanel() {
   const qc = useQueryClient();
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions"],
@@ -57,8 +57,6 @@ export function FinancePanel({ weather, onCloseWeather }: { weather: Weather | n
   }
   return (
     <div className="space-y-6">
-          {weather && <WeatherCard w={weather} onClose={() => onCloseWeather()} />}
-
           <Reminders />
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Balance del mes" value={stats.balance} highlight />
@@ -159,6 +157,7 @@ function WeatherIcon({ code, className }: { code: number; className?: string }) 
 }
 
 export function WeatherCard({ w, onClose }: { w: Weather; onClose: () => void }) {
+  // Tarjeta de clima: se muestra arriba del asistente de voz en index.tsx
   return (
     <div className="relative rounded-3xl border bg-card p-6">
       <button onClick={onClose} aria-label="Cerrar clima" className="absolute right-4 top-4 text-muted-foreground hover:text-foreground">
