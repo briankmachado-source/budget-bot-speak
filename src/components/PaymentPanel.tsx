@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus, RotateCcw, Wallet } from "lucide-react";
+import { Check, Pencil, Plus, RotateCcw, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ export function PaymentPanel() {
   const [due, setDue] = useState("");
   const [installments, setInstallments] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { data: payments = [], isPending, isError } = useQuery({
     queryKey: ["payments"],
     queryFn: async () => {
@@ -38,13 +39,31 @@ export function PaymentPanel() {
     catch (error) { toast.error(error instanceof Error ? error.message : "Revisa las cuotas pendientes"); return; }
     setBusy(true);
     try {
-      const { data, error } = await supabase.from("payments").insert({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).select().single();
-      if (error) throw error;
-      qc.setQueryData<Payment[]>(["payments"], (old = []) => [...old, data].sort((a, b) => a.due_on.localeCompare(b.due_on)));
-      setTitle(""); setAmount(""); setDue(""); setInstallments("");
-      toast.success("Pago pendiente agregado");
+      if (editingId) {
+        const { data, error } = await supabase.from("payments").update({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).eq("id", editingId).select().single();
+        if (error) throw error;
+        qc.setQueryData<Payment[]>(["payments"], (old = []) => old.map((p) => p.id === editingId ? data : p).sort((a, b) => a.due_on.localeCompare(b.due_on)));
+        toast.success("Pago actualizado");
+      } else {
+        const { data, error } = await supabase.from("payments").insert({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).select().single();
+        if (error) throw error;
+        qc.setQueryData<Payment[]>(["payments"], (old = []) => [...old, data].sort((a, b) => a.due_on.localeCompare(b.due_on)));
+        toast.success("Pago pendiente agregado");
+      }
+      setTitle(""); setAmount(""); setDue(""); setInstallments(""); setEditingId(null);
       await qc.invalidateQueries({ queryKey: ["payments"] });
     } catch { toast.error("No se pudo guardar el pago"); } finally { setBusy(false); }
+  }
+  function startEdit(p: Payment) {
+    setEditingId(p.id);
+    setTitle(p.title);
+    setAmount(String(Number(p.amount)));
+    setDue(p.due_on);
+    setInstallments(p.pending_installments != null ? String(p.pending_installments) : "");
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setTitle(""); setAmount(""); setDue(""); setInstallments("");
   }
   async function mark(payment: Payment) {
     const { error } = await supabase.from("payments").update({ paid: !payment.paid }).eq("id", payment.id);
@@ -64,6 +83,7 @@ export function PaymentPanel() {
       <Button variant="outline" size="icon" className="shrink-0" aria-label={paid ? `Volver a pendiente ${p.title}` : `Marcar pagado ${p.title}`} title={paid ? "Volver a pendiente" : "Marcar pagado"} onClick={() => mark(p)}>{paid ? <RotateCcw /> : <Check />}</Button>
       <div className="min-w-0 flex-1"><p className={cn("break-words text-sm font-medium", paid && "text-muted-foreground line-through")}>{p.title}</p><p className={cn("text-xs", !paid && p.due_on < today ? "text-destructive" : "text-muted-foreground")}>{!paid && p.due_on < today ? "Vencido · " : "Vence · "}{new Date(`${p.due_on}T12:00:00`).toLocaleDateString("es-CO")}</p><p className="text-sm font-semibold tabular-nums">{cop.format(Number(p.amount))}</p></div>
       {p.pending_installments != null && !paid && <span className="max-w-20 shrink-0 text-center text-xs text-muted-foreground"><span className="block text-sm font-semibold text-foreground">{p.pending_installments}</span>{p.pending_installments === 1 ? "cuota pendiente" : "cuotas pendientes"}</span>}
+      <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-foreground" aria-label={`Editar pago ${p.title}`} title={`Editar pago ${p.title}`} onClick={() => startEdit(p)}><Pencil /></Button>
       <DeleteButton label={`pago ${p.title}`} onDelete={() => remove(p.id)} />
     </li>);
   }
@@ -73,7 +93,10 @@ export function PaymentPanel() {
     <form onSubmit={submit} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-xs text-muted-foreground">Concepto<Input aria-label="Concepto del pago" placeholder="Ej. Arriendo" required value={title} onChange={(e) => setTitle(e.target.value)} /></label><label className="space-y-1 text-xs text-muted-foreground">Monto<Input aria-label="Monto del pago" inputMode="decimal" placeholder="Ej. 400000" required value={amount} onChange={(e) => setAmount(e.target.value)} /></label><label className="min-w-0 space-y-1 text-xs text-muted-foreground">Vencimiento<Input aria-label="Vencimiento del pago" type="date" required value={due} onChange={(e) => setDue(e.target.value)} /></label></div>
       <label className="block space-y-1 text-xs text-muted-foreground">Cuotas pendientes (opcional)<Input aria-label="Cuotas pendientes" type="number" min="1" max="2147483647" step="1" inputMode="numeric" placeholder="Ej. 12" value={installments} onChange={(e) => setInstallments(e.target.value)} className="sm:max-w-48" /></label>
-      <Button type="submit" disabled={busy}><Plus />{busy ? "Guardando…" : "Agregar pago pendiente"}</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={busy}><Plus />{busy ? "Guardando…" : editingId ? "Guardar cambios" : "Agregar pago pendiente"}</Button>
+        {editingId && <Button type="button" variant="outline" disabled={busy} onClick={cancelEdit}><X />Cancelar edición</Button>}
+      </div>
     </form>
     {isPending ? <p className="text-sm text-muted-foreground">Cargando pagos…</p> : isError ? <p role="alert" className="text-sm text-destructive">No se pudieron cargar los pagos.</p> : <><ul className="divide-y divide-border">{rows(false)}</ul>{totals.count === 0 && <p className="text-sm text-muted-foreground">No tienes pagos pendientes.</p>}{payments.some((p) => p.paid) && <details><summary className="cursor-pointer text-sm font-medium text-muted-foreground">Pagados</summary><ul className="divide-y divide-border">{rows(true)}</ul></details>}</>}
   </section>;
