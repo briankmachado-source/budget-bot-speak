@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus, RotateCcw, Wallet } from "lucide-react";
+import { Check, Pencil, Plus, RotateCcw, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ export function PaymentPanel() {
   const [due, setDue] = useState("");
   const [installments, setInstallments] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { data: payments = [], isPending, isError } = useQuery({
     queryKey: ["payments"],
     queryFn: async () => {
