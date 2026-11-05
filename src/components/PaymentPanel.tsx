@@ -83,6 +83,7 @@ export function PaymentPanel() {
       <Button variant="outline" size="icon" className="shrink-0" aria-label={paid ? `Volver a pendiente ${p.title}` : `Marcar pagado ${p.title}`} title={paid ? "Volver a pendiente" : "Marcar pagado"} onClick={() => mark(p)}>{paid ? <RotateCcw /> : <Check />}</Button>
       <div className="min-w-0 flex-1"><p className={cn("break-words text-sm font-medium", paid && "text-muted-foreground line-through")}>{p.title}</p><p className={cn("text-xs", !paid && p.due_on < today ? "text-destructive" : "text-muted-foreground")}>{!paid && p.due_on < today ? "Vencido · " : "Vence · "}{new Date(`${p.due_on}T12:00:00`).toLocaleDateString("es-CO")}</p><p className="text-sm font-semibold tabular-nums">{cop.format(Number(p.amount))}</p></div>
       {p.pending_installments != null && !paid && <span className="max-w-20 shrink-0 text-center text-xs text-muted-foreground"><span className="block text-sm font-semibold text-foreground">{p.pending_installments}</span>{p.pending_installments === 1 ? "cuota pendiente" : "cuotas pendientes"}</span>}
+      <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-foreground" aria-label={`Editar pago ${p.title}`} title={`Editar pago ${p.title}`} onClick={() => startEdit(p)}><Pencil /></Button>
       <DeleteButton label={`pago ${p.title}`} onDelete={() => remove(p.id)} />
     </li>);
   }
@@ -92,7 +93,10 @@ export function PaymentPanel() {
     <form onSubmit={submit} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3"><label className="space-y-1 text-xs text-muted-foreground">Concepto<Input aria-label="Concepto del pago" placeholder="Ej. Arriendo" required value={title} onChange={(e) => setTitle(e.target.value)} /></label><label className="space-y-1 text-xs text-muted-foreground">Monto<Input aria-label="Monto del pago" inputMode="decimal" placeholder="Ej. 400000" required value={amount} onChange={(e) => setAmount(e.target.value)} /></label><label className="min-w-0 space-y-1 text-xs text-muted-foreground">Vencimiento<Input aria-label="Vencimiento del pago" type="date" required value={due} onChange={(e) => setDue(e.target.value)} /></label></div>
       <label className="block space-y-1 text-xs text-muted-foreground">Cuotas pendientes (opcional)<Input aria-label="Cuotas pendientes" type="number" min="1" max="2147483647" step="1" inputMode="numeric" placeholder="Ej. 12" value={installments} onChange={(e) => setInstallments(e.target.value)} className="sm:max-w-48" /></label>
-      <Button type="submit" disabled={busy}><Plus />{busy ? "Guardando…" : "Agregar pago pendiente"}</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={busy}><Plus />{busy ? "Guardando…" : editingId ? "Guardar cambios" : "Agregar pago pendiente"}</Button>
+        {editingId && <Button type="button" variant="outline" disabled={busy} onClick={cancelEdit}><X />Cancelar edición</Button>}
+      </div>
     </form>
     {isPending ? <p className="text-sm text-muted-foreground">Cargando pagos…</p> : isError ? <p role="alert" className="text-sm text-destructive">No se pudieron cargar los pagos.</p> : <><ul className="divide-y divide-border">{rows(false)}</ul>{totals.count === 0 && <p className="text-sm text-muted-foreground">No tienes pagos pendientes.</p>}{payments.some((p) => p.paid) && <details><summary className="cursor-pointer text-sm font-medium text-muted-foreground">Pagados</summary><ul className="divide-y divide-border">{rows(true)}</ul></details>}</>}
   </section>;
