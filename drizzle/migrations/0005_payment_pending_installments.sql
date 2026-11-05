@@ -1,0 +1,2 @@
+ALTER TABLE public.payments ADD COLUMN pending_installments integer CHECK (pending_installments > 0);
+COMMENT ON COLUMN public.payments.pending_installments IS 'User-entered outstanding installment count; null means not specified. Does not change the payment amount.';

@@ -11,3 +11,4 @@
 - [x] Probar el formulario de recordatorios.
 - [x] Permitir borrar movimientos y recordatorios pendientes y completados desde el teléfono.
 - [x] Convertir el panel de movimientos en control de pagos pendientes, sin modificar registros anteriores.
+- [x] Permitir indicar y guardar el número de cuotas pendientes de un pago.
