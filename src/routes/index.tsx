@@ -16,10 +16,10 @@ import { CATEGORIES, guessCategory, parseAmount, parseCommand } from "@/lib/comm
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Atento AI — Tus finanzas y recordatorios por voz" },
-      { name: "description", content: "Registra gastos e ingresos, crea recordatorios y consulta el clima hablando o con botones. Panel de finanzas en pesos colombianos." },
-      { property: "og:title", content: "Atento AI — Tus finanzas y recordatorios por voz" },
-      { property: "og:description", content: "Registra gastos, crea recordatorios y consulta el clima por voz o con botones." },
+      { title: "Atento AI — Pagos pendientes y recordatorios" },
+      { name: "description", content: "Controla pagos pendientes y vencidos en pesos colombianos, registra movimientos y organiza tus recordatorios por voz." },
+      { property: "og:title", content: "Atento AI — Pagos pendientes y recordatorios" },
+      { property: "og:description", content: "Organiza tus pagos pendientes, movimientos y recordatorios, y consulta el clima." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

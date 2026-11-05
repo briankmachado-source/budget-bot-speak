@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { currentSubscription, disablePush, enablePush, pushSupported } from "@/lib/push";
+import { DeleteButton } from "@/components/DeleteButton";
 
 type Reminder = { id: string; title: string; remind_at: string; done: boolean; notified: boolean };
 
@@ -96,17 +97,23 @@ export function Reminders() {
 
   async function setDone(id: string, done: boolean) {
     const { error } = await supabase.from("reminders").update({ done }).eq("id", id);
-    if (error) toast.error("No se pudo actualizar");
-    qc.invalidateQueries({ queryKey: ["reminders"] });
+    if (error) { toast.error("No se pudo actualizar"); return; }
+    qc.setQueryData<Reminder[]>(["reminders"], (old = []) => old.map((r) => r.id === id ? { ...r, done } : r));
+    if (done && ringing?.id === id) setRinging(null);
+    await qc.invalidateQueries({ queryKey: ["reminders"] });
   }
   async function remove(id: string) {
     const { error } = await supabase.from("reminders").delete().eq("id", id);
-    if (error) toast.error("No se pudo eliminar");
-    qc.invalidateQueries({ queryKey: ["reminders"] });
+    if (error) { toast.error("No se pudo borrar el recordatorio"); throw error; }
+    qc.setQueryData<Reminder[]>(["reminders"], (old = []) => old.filter((r) => r.id !== id));
+    if (ringing?.id === id) setRinging(null);
+    firing.current.delete(id);
+    await qc.invalidateQueries({ queryKey: ["reminders"] });
+    toast.success("Recordatorio borrado");
   }
 
   const pending = items.filter((r) => !r.done);
-  const done = items.filter((r) => r.done).reverse().slice(0, 10);
+  const done = items.filter((r) => r.done).reverse();
 
   return (
     <>
@@ -126,7 +133,7 @@ export function Reminders() {
         </div>
       )}
       <div className="rounded-3xl border bg-card p-6">
-        <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-lg font-semibold"><Bell className="h-5 w-5" /> Recordatorios</h2>
           <PhoneToggle />
         </div>
@@ -138,16 +145,12 @@ export function Reminders() {
               const overdue = new Date(r.remind_at).getTime() < Date.now();
               return (
                 <li key={r.id} className="group flex items-center gap-3 py-3">
-                  <button onClick={() => setDone(r.id, true)} aria-label="Marcar como hecho" className="flex h-6 w-6 items-center justify-center rounded-full border hover:border-primary hover:text-primary">
-                    <Check className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100" />
-                  </button>
+                  <Button variant="outline" size="icon" onClick={() => setDone(r.id, true)} aria-label={`Marcar como hecho ${r.title}`} title="Marcar como hecho" className="shrink-0"><Check /></Button>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{r.title}</p>
                     <p className={cn("text-xs", overdue ? "text-destructive" : "text-muted-foreground")}>{fmt(r.remind_at)}</p>
                   </div>
-                  <button onClick={() => remove(r.id)} aria-label="Eliminar" className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <DeleteButton label={`recordatorio ${r.title}`} onDelete={() => remove(r.id)} />
                 </li>
               );
             })}
@@ -161,8 +164,8 @@ export function Reminders() {
                 <li key={r.id} className="group flex items-center gap-3 py-2 text-muted-foreground">
                   <Check className="h-4 w-4 text-success" />
                   <p className="min-w-0 flex-1 truncate text-sm line-through">{r.title}</p>
-                  <button onClick={() => setDone(r.id, false)} aria-label="Volver a pendiente" className="opacity-0 group-hover:opacity-100 hover:text-foreground"><RotateCcw className="h-4 w-4" /></button>
-                  <button onClick={() => remove(r.id)} aria-label="Eliminar" className="opacity-0 group-hover:opacity-100 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+                  <Button variant="ghost" size="icon" onClick={() => setDone(r.id, false)} aria-label={`Volver a pendiente ${r.title}`} title="Volver a pendiente"><RotateCcw /></Button>
+                  <DeleteButton label={`recordatorio ${r.title}`} onDelete={() => remove(r.id)} />
                 </li>
               ))}
             </ul>

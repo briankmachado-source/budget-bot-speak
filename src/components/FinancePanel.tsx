@@ -7,6 +7,9 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Weather } from "@/lib/weather";
 import { Reminders } from "@/components/Reminders";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { DeleteButton } from "@/components/DeleteButton";
+import { PaymentPanel } from "@/components/PaymentPanel";
 
 
 const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
@@ -52,8 +55,10 @@ export function FinancePanel() {
 
   async function remove(id: string) {
     const { error } = await supabase.from("transactions").delete().eq("id", id);
-    if (error) toast.error("No se pudo eliminar");
-    else qc.invalidateQueries({ queryKey: ["transactions"] });
+    if (error) { toast.error("No se pudo borrar el movimiento"); throw error; }
+    qc.setQueryData<Tx[]>(["transactions"], (old = []) => old.filter((t) => t.id !== id));
+    await qc.invalidateQueries({ queryKey: ["transactions"] });
+    toast.success("Movimiento borrado");
   }
   return (
     <div className="space-y-6">
@@ -97,13 +102,14 @@ export function FinancePanel() {
             )}
           </div>
 
-          <div className="rounded-3xl border bg-card p-6">
-            <h2 className="mb-4 text-lg font-semibold">Movimientos</h2>
+          <PaymentPanel />
+          <details className="border-t py-5">
+            <summary className="cursor-pointer text-lg font-semibold">Historial de movimientos</summary>
             {txs.length === 0 ? (
               <p className="text-sm text-muted-foreground">Tus registros aparecerán aquí.</p>
             ) : (
               <ul className="divide-y divide-border">
-                {txs.slice(0, 15).map((t) => (
+                {txs.map((t) => (
                   <li key={t.id} className="group flex items-center gap-3 py-3">
                     <span
                       className={cn(
@@ -123,18 +129,12 @@ export function FinancePanel() {
                       {t.type === "income" ? "+" : "−"}
                       {cop.format(Number(t.amount))}
                     </span>
-                    <button
-                      onClick={() => remove(t.id)}
-                      aria-label="Eliminar"
-                      className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <DeleteButton label={`movimiento ${t.description || t.category}`} onDelete={() => remove(t.id)} />
                   </li>
                 ))}
               </ul>
             )}
-          </div>
+          </details>
     </div>
   );
 }
