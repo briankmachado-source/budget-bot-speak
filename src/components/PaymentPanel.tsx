@@ -39,13 +39,31 @@ export function PaymentPanel() {
     catch (error) { toast.error(error instanceof Error ? error.message : "Revisa las cuotas pendientes"); return; }
     setBusy(true);
     try {
-      const { data, error } = await supabase.from("payments").insert({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).select().single();
-      if (error) throw error;
-      qc.setQueryData<Payment[]>(["payments"], (old = []) => [...old, data].sort((a, b) => a.due_on.localeCompare(b.due_on)));
-      setTitle(""); setAmount(""); setDue(""); setInstallments("");
-      toast.success("Pago pendiente agregado");
+      if (editingId) {
+        const { data, error } = await supabase.from("payments").update({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).eq("id", editingId).select().single();
+        if (error) throw error;
+        qc.setQueryData<Payment[]>(["payments"], (old = []) => old.map((p) => p.id === editingId ? data : p).sort((a, b) => a.due_on.localeCompare(b.due_on)));
+        toast.success("Pago actualizado");
+      } else {
+        const { data, error } = await supabase.from("payments").insert({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).select().single();
+        if (error) throw error;
+        qc.setQueryData<Payment[]>(["payments"], (old = []) => [...old, data].sort((a, b) => a.due_on.localeCompare(b.due_on)));
+        toast.success("Pago pendiente agregado");
+      }
+      setTitle(""); setAmount(""); setDue(""); setInstallments(""); setEditingId(null);
       await qc.invalidateQueries({ queryKey: ["payments"] });
     } catch { toast.error("No se pudo guardar el pago"); } finally { setBusy(false); }
+  }
+  function startEdit(p: Payment) {
+    setEditingId(p.id);
+    setTitle(p.title);
+    setAmount(String(Number(p.amount)));
+    setDue(p.due_on);
+    setInstallments(p.pending_installments != null ? String(p.pending_installments) : "");
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setTitle(""); setAmount(""); setDue(""); setInstallments("");
   }
   async function mark(payment: Payment) {
     const { error } = await supabase.from("payments").update({ paid: !payment.paid }).eq("id", payment.id);
