@@ -36,6 +36,13 @@
       "when": 1793768149096,
       "tag": "0004_payment_control",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793852070082,
+      "tag": "0005_payment_pending_installments",
+      "breakpoints": true
     }
   ]
 }

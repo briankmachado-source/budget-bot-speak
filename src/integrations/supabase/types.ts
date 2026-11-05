@@ -107,6 +107,7 @@ export type Database = {
           due_on: string
           id: string
           paid: boolean
+          pending_installments: number | null
           title: string
           user_id: string
         }
@@ -116,6 +117,7 @@ export type Database = {
           due_on: string
           id?: string
           paid?: boolean
+          pending_installments?: number | null
           title: string
           user_id?: string
         }
@@ -125,6 +127,7 @@ export type Database = {
           due_on?: string
           id?: string
           paid?: boolean
+          pending_installments?: number | null
           title?: string
           user_id?: string
         }
