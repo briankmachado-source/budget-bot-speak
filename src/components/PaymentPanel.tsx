@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DeleteButton } from "@/components/DeleteButton";
 import { parseAmount } from "@/lib/commands";
-import { bogotaToday, paymentTotals, type Payment } from "@/lib/payment-control";
+import { bogotaToday, paymentTotals, parsePendingInstallments, type Payment } from "@/lib/payment-control";
 import { cn } from "@/lib/utils";
 
 const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
@@ -16,6 +16,7 @@ export function PaymentPanel() {
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [due, setDue] = useState("");
+  const [installments, setInstallments] = useState("");
   const [busy, setBusy] = useState(false);
   const { data: payments = [], isPending, isError } = useQuery({
     queryKey: ["payments"],
@@ -32,12 +33,15 @@ export function PaymentPanel() {
     if (busy) return;
     const n = parseAmount(amount);
     if (!title.trim() || !n || n <= 0 || !due) { toast.error("Completa el concepto, un monto válido y el vencimiento"); return; }
+    let count: number | null;
+    try { count = parsePendingInstallments(installments); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Revisa las cuotas pendientes"); return; }
     setBusy(true);
     try {
-      const { data, error } = await supabase.from("payments").insert({ title: title.trim(), amount: n, due_on: due }).select().single();
+      const { data, error } = await supabase.from("payments").insert({ title: title.trim(), amount: n, due_on: due, pending_installments: count }).select().single();
       if (error) throw error;
       qc.setQueryData<Payment[]>(["payments"], (old = []) => [...old, data].sort((a, b) => a.due_on.localeCompare(b.due_on)));
-      setTitle(""); setAmount(""); setDue("");
+      setTitle(""); setAmount(""); setDue(""); setInstallments("");
       toast.success("Pago pendiente agregado");
       await qc.invalidateQueries({ queryKey: ["payments"] });
     } catch { toast.error("No se pudo guardar el pago"); } finally { setBusy(false); }
@@ -59,6 +63,7 @@ export function PaymentPanel() {
     return payments.filter((p) => p.paid === paid).map((p) => <li key={p.id} className="flex items-center gap-2 py-3">
       <Button variant="outline" size="icon" className="shrink-0" aria-label={paid ? `Volver a pendiente ${p.title}` : `Marcar pagado ${p.title}`} title={paid ? "Volver a pendiente" : "Marcar pagado"} onClick={() => mark(p)}>{paid ? <RotateCcw /> : <Check />}</Button>
       <div className="min-w-0 flex-1"><p className={cn("break-words text-sm font-medium", paid && "text-muted-foreground line-through")}>{p.title}</p><p className={cn("text-xs", !paid && p.due_on < today ? "text-destructive" : "text-muted-foreground")}>{!paid && p.due_on < today ? "Vencido · " : "Vence · "}{new Date(`${p.due_on}T12:00:00`).toLocaleDateString("es-CO")}</p><p className="text-sm font-semibold tabular-nums">{cop.format(Number(p.amount))}</p></div>
+      {p.pending_installments != null && !paid && <span className="max-w-20 shrink-0 text-center text-xs text-muted-foreground"><span className="block text-sm font-semibold text-foreground">{p.pending_installments}</span>{p.pending_installments === 1 ? "cuota pendiente" : "cuotas pendientes"}</span>}
       <DeleteButton label={`pago ${p.title}`} onDelete={() => remove(p.id)} />
     </li>);
   }

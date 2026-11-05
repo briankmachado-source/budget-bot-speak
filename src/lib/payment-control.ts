@@ -1,4 +1,13 @@
-export type Payment = { id: string; title: string; amount: number; due_on: string; paid: boolean };
+export type Payment = { id: string; title: string; amount: number; due_on: string; paid: boolean; pending_installments?: number | null };
+
+export function parsePendingInstallments(value: string): number | null {
+  if (!value.trim()) return null;
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 1 || count > 2147483647) {
+    throw new Error("Escribe un número entero de cuotas mayor que cero");
+  }
+  return count;
+}
 
 export function paymentTotals(payments: Payment[], today: string) {
   return payments.reduce((totals, payment) => {
