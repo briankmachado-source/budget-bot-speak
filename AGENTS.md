@@ -14,3 +14,4 @@
 - The app has no income/expense finance panel: no balance, charts, transaction form or transaction voice commands. Voice commands cover only reminders and weather (src/lib/commands.ts); keep parseAmount there because PaymentPanel uses it.
 - Keep scheduled payments in their own owner-scoped table and PaymentPanel.
 - Use a shared confirmation-based DeleteButton for record deletion; show actions on touch screens and update query caches after successful writes.
+- Reuse ReminderDateInput for compact reminder date fields and reminder-edit helpers for update validation; rescheduling clears the notification flag while title-only edits preserve it so reminders can alert at their new time.

@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellRing, Check, RotateCcw, Smartphone, Trash2 } from "lucide-react";
+import { Bell, BellRing, Check, RotateCcw, Smartphone, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { currentSubscription, disablePush, enablePush, pushSupported } from "@/lib/push";
 import { DeleteButton } from "@/components/DeleteButton";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ReminderDateInput } from "@/components/ReminderDateInput";
+import { reminderChanges, toLocalDateTime } from "@/lib/reminder-edit";
 
 type Reminder = { id: string; title: string; remind_at: string; done: boolean; notified: boolean };
 
@@ -66,6 +70,37 @@ export function Reminders() {
   const qc = useQueryClient();
   const [ringing, setRinging] = useState<Reminder | null>(null);
   const firing = useRef(new Set<string>());
+  const [editing, setEditing] = useState<Reminder | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editWhen, setEditWhen] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function startEdit(reminder: Reminder) {
+    setEditTitle(reminder.title);
+    setEditWhen(toLocalDateTime(reminder.remind_at));
+    setEditing(reminder);
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing || saving) return;
+    setSaving(true);
+    try {
+      const changes = reminderChanges(editing, editTitle, editWhen);
+      const { data, error } = await supabase.from("reminders").update(changes).eq("id", editing.id).select().single();
+      if (error) throw error;
+      qc.setQueryData<Reminder[]>(["reminders"], (old = []) => old.map((r) => r.id === editing.id ? data as Reminder : r));
+      if (changes.remind_at !== editing.remind_at) {
+        firing.current.delete(editing.id);
+        if (ringing?.id === editing.id) setRinging(null);
+      } else if (ringing?.id === editing.id) setRinging(data as Reminder);
+      setEditing(null);
+      await qc.invalidateQueries({ queryKey: ["reminders"] });
+      toast.success("Recordatorio actualizado");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo actualizar el recordatorio");
+    } finally { setSaving(false); }
+  }
 
   const { data: items = [] } = useQuery({
     queryKey: ["reminders"],
@@ -117,6 +152,19 @@ export function Reminders() {
 
   return (
     <>
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open && !saving) setEditing(null); }}>
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-lg" aria-describedby={undefined}>
+          <DialogHeader><DialogTitle>Editar recordatorio</DialogTitle></DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-3">
+            <Input aria-label="Qué recordar" placeholder="Qué recordar" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} disabled={saving} />
+            <ReminderDateInput value={editWhen} onChange={setEditWhen} />
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" disabled={saving} onClick={() => setEditing(null)}>Cancelar</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Guardando…" : "Guardar cambios"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       {ringing && (
         <div className="rounded-3xl border-2 border-primary bg-primary p-6 text-primary-foreground">
           <div className="flex items-center gap-3">
@@ -138,7 +186,7 @@ export function Reminders() {
           <PhoneToggle />
         </div>
         {pending.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin pendientes. Di "Atento AI, recuérdame mañana a las 8:30…"</p>
+          <p className="text-sm text-muted-foreground">Sin recordatorios pendientes.</p>
         ) : (
           <ul className="divide-y divide-border">
             {pending.map((r) => {
@@ -150,6 +198,7 @@ export function Reminders() {
                     <p className="truncate text-sm font-medium">{r.title}</p>
                     <p className={cn("text-xs", overdue ? "text-destructive" : "text-muted-foreground")}>{fmt(r.remind_at)}</p>
                   </div>
+                  <Button variant="ghost" size="icon" onClick={() => startEdit(r)} aria-label={`Editar recordatorio ${r.title}`} title="Editar recordatorio" className="shrink-0"><Pencil className="h-4 w-4" /></Button>
                   <DeleteButton label={`recordatorio ${r.title}`} onDelete={() => remove(r.id)} />
                 </li>
               );
@@ -165,6 +214,7 @@ export function Reminders() {
                   <Check className="h-4 w-4 text-success" />
                   <p className="min-w-0 flex-1 truncate text-sm line-through">{r.title}</p>
                   <Button variant="ghost" size="icon" onClick={() => setDone(r.id, false)} aria-label={`Volver a pendiente ${r.title}`} title="Volver a pendiente"><RotateCcw /></Button>
+                  <Button variant="ghost" size="icon" onClick={() => startEdit(r)} aria-label={`Editar recordatorio ${r.title}`} title="Editar recordatorio" className="shrink-0"><Pencil className="h-4 w-4" /></Button>
                   <DeleteButton label={`recordatorio ${r.title}`} onDelete={() => remove(r.id)} />
                 </li>
               ))}
