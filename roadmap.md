@@ -1,5 +1,8 @@
 # Roadmap
 
+- [ ] Quitar la sugerencia de pagar el arriendo y recuperar campos compactos.
+- [ ] Permitir editar recordatorios y verificar que los cambios se guardan.
+
 - [x] Evitar que la escucha continua se bloquee o deje de responder.
 - [x] Mostrar un aviso claro cuando el micrófono no esté disponible.
 - [x] Verificar el flujo de activación, escucha y reconexión.
