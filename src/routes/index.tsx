@@ -129,7 +129,6 @@ function ReminderForm({ userId }: { userId: string }) {
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [when, setWhen] = useState("");
-  const [timeFocused, setTimeFocused] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
