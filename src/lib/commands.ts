@@ -3,6 +3,21 @@ export function norm(t: string) {
   return t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 }
 
+export function parseAmount(t: string): number | null {
+  const m = norm(t).match(/\$?\s*(\d[\d.,]*)\s*(mil\b|millon(?:es)?|k\b)?/);
+  const half = /medio millon/.test(norm(t));
+  if (!m) return half ? 500000 : null;
+  const raw = m[1]!.replace(/[.,]+$/, "");
+  let n: number;
+  if (/^\d{1,3}([.,]\d{3})+$/.test(raw)) n = Number(raw.replace(/[.,]/g, ""));
+  else n = parseFloat(raw.replace(",", "."));
+  if (!isFinite(n)) return null;
+  const u = m[2];
+  if (u === "mil" || u === "k") n *= 1000;
+  else if (u?.startsWith("millon")) n *= 1_000_000;
+  return Math.round(n);
+}
+
 export type Command =
   | { kind: "reminder"; title: string; at: Date }
   | { kind: "weather"; city: string }
