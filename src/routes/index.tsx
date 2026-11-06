@@ -128,6 +128,7 @@ function ReminderForm({ userId }: { userId: string }) {
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [when, setWhen] = useState("");
+  const [timeFocused, setTimeFocused] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -145,7 +146,30 @@ function ReminderForm({ userId }: { userId: string }) {
       <h2 className="text-lg font-semibold">Nuevo recordatorio</h2>
       <div className="grid gap-2 sm:grid-cols-2">
         <Input placeholder="Qué recordar" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+        <div className="relative">
+          <Input
+            type="datetime-local"
+            aria-label="Establecer fecha y hora"
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+            onFocus={() => setTimeFocused(true)}
+            onBlur={() => setTimeFocused(false)}
+            className={cn(
+              "h-12 pb-1 pt-4",
+              !when && !timeFocused && "text-transparent",
+            )}
+          />
+          <span
+            className={cn(
+              "pointer-events-none absolute left-3 text-muted-foreground transition-all",
+              !when && !timeFocused
+                ? "top-1/2 -translate-y-1/2 text-sm"
+                : "top-1.5 text-[11px] font-medium uppercase tracking-wide",
+            )}
+          >
+            Establecer fecha y hora
+          </span>
+        </div>
       </div>
       <Button type="submit"><Plus className="mr-1 h-4 w-4" /> Crear</Button>
     </form>
