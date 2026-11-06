@@ -14,6 +14,7 @@ import { useSession } from "@/hooks/use-session";
 import { useVoiceAssistant } from "@/hooks/use-voice-assistant";
 import { getWeather, type Weather } from "@/lib/weather";
 import { parseCommand } from "@/lib/commands";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
