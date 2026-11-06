@@ -1,6 +1,6 @@
 // Intérprete de frases fijas en español (sin IA): recordatorios y clima.
 export function norm(t: string) {
-  return t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+  return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 
 }
 
