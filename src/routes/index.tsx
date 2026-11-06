@@ -145,7 +145,15 @@ function ReminderForm({ userId }: { userId: string }) {
     <form onSubmit={submit} className="space-y-3 rounded-3xl border bg-card p-5">
       <h2 className="text-lg font-semibold">Nuevo recordatorio</h2>
       <div className="grid gap-2 sm:grid-cols-2">
-        <Input placeholder="Qué recordar" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <label className="block rounded-md border border-input bg-transparent px-3 py-1.5 shadow-sm transition-colors focus-within:outline-none focus-within:ring-1 focus-within:ring-ring">
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Qué recordar</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Pagar el arriendo"
+            className="w-full bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
+          />
+        </label>
         <label className="block rounded-md border border-input bg-transparent px-3 py-1.5 shadow-sm transition-colors focus-within:outline-none focus-within:ring-1 focus-within:ring-ring">
           <span className={cn("block text-[11px] font-medium uppercase tracking-wide text-muted-foreground", !when && "text-foreground/70")}>
             Establecer fecha y hora
