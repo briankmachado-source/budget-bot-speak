@@ -1,53 +1,11 @@
-// Intérprete de frases fijas en español (sin IA): gastos, ingresos, recordatorios, clima y resumen.
-export const CATEGORIES = [
-  "Mercado", "Transporte", "Vivienda", "Servicios", "Salud", "Educación", "Entretenimiento",
-  "Restaurantes", "Ropa", "Deudas", "Salario", "Ingresos extra", "Otros",
-] as const;
-
-const KEYWORDS: Array<[string, RegExp]> = [
-  ["Mercado", /verdura|fruta|mercado|super|tienda|carne|pollo|huevo|leche|pan\b|comida de la casa|abarrote/],
-  ["Transporte", /taxi|uber|bus|gasolina|transporte|pasaje|moto|peaje|parqueadero/],
-  ["Vivienda", /arriendo|alquiler|hipoteca|administracion|vivienda/],
-  ["Servicios", /luz|agua|gas\b|internet|celular|plan de datos|servicio|energia|telefono/],
-  ["Salud", /medic|doctor|farmacia|salud|droga|examen|dentista/],
-  ["Educación", /colegio|universidad|curso|libro|educacion|matricula|pension/],
-  ["Entretenimiento", /cine|netflix|spotify|juego|fiesta|entretenimiento|concierto/],
-  ["Restaurantes", /restaurante|almuerzo|cena|desayuno|hamburguesa|pizza|cafe|salchipapa/],
-  ["Ropa", /ropa|zapato|camisa|pantalon|tenis/],
-  ["Deudas", /deuda|credito|cuota|prestamo/],
-];
-
-export function guessCategory(text: string, income: boolean) {
-  const t = norm(text);
-  if (income) return /salario|sueldo|nomina/.test(t) ? "Salario" : "Ingresos extra";
-  for (const [c, re] of KEYWORDS) if (re.test(t)) return c;
-  return "Otros";
-}
-
+// Intérprete de frases fijas en español (sin IA): recordatorios y clima.
 export function norm(t: string) {
-  return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
-}
-
-export function parseAmount(t: string): number | null {
-  const m = norm(t).match(/\$?\s*(\d[\d.,]*)\s*(mil\b|millon(?:es)?|k\b)?/);
-  const half = /medio millon/.test(norm(t));
-  if (!m) return half ? 500000 : null;
-  let raw = m[1]!.replace(/[.,]+$/, "");
-  let n: number;
-  if (/^\d{1,3}([.,]\d{3})+$/.test(raw)) n = Number(raw.replace(/[.,]/g, ""));
-  else n = parseFloat(raw.replace(",", "."));
-  if (!isFinite(n)) return null;
-  const u = m[2];
-  if (u === "mil" || u === "k") n *= 1000;
-  else if (u?.startsWith("millon")) n *= 1_000_000;
-  return Math.round(n);
+  return t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 }
 
 export type Command =
-  | { kind: "transaction"; type: "expense" | "income"; amount: number; category: string; description: string }
   | { kind: "reminder"; title: string; at: Date }
   | { kind: "weather"; city: string }
-  | { kind: "summary" }
   | { kind: "unknown" };
 
 function bogotaParts(d: Date) {
@@ -91,7 +49,7 @@ function parseWhen(t: string, now: Date): { at: Date | null; rest: string } {
 }
 
 export function parseCommand(raw: string, now = new Date()): Command {
-  let t = norm(raw).replace(/^(hola|oye|ok)[\s,]+/, "").replace(/^atento\s*(ai|ia)?[\s,]*/, "").trim();
+  const t = norm(raw).replace(/^(hola|oye|ok)[\s,]+/, "").replace(/^atento\s*(ai|ia)?[\s,]*/, "").trim();
 
   if (/\b(recuerdame|recordatorio|alarma|avisame|recuerda)\b/.test(t)) {
     const { at, rest } = parseWhen(t, now);
@@ -109,20 +67,5 @@ export function parseCommand(raw: string, now = new Date()): Command {
     return { kind: "weather", city: city || "Bogotá" };
   }
 
-  const isIncome = /\b(ingreso|ingresos|cobre|cobro|me pagaron|venta|vendi|salario|sueldo|recibi|gane)\b/.test(t);
-  const isExpense = /\b(pago|pague|gasto|gaste|compra|compre|egreso|invertí|invertir)\b/.test(t) || /\b(registra|anota|apunta|agrega)\b/.test(t);
-  const amount = parseAmount(t);
-  if ((isIncome || isExpense) && amount && amount > 0) {
-    const d = t.match(/\d[\d.,]*\s*(?:mil|millones|millon|k)?\s*(?:pesos)?\s*(?:de|en|por|para)\s+(.+)$/);
-    let description = (d?.[1] ?? "").trim();
-    if (!description) {
-      description = t.replace(/\b(registra|anota|apunta|agrega|un|una|pago|pague|gasto|gaste|compra|compre|ingreso|por|de|pesos)\b/g, " ").replace(/\$?\s*\d[\d.,]*\s*(mil|millones|millon|k)?/, " ").replace(/\s+/g, " ").trim();
-    }
-    const type = isIncome && !/\b(pago|pague|gasto|gaste|compra|compre)\b/.test(t) ? "income" : "expense";
-    const desc = description ? description[0]!.toUpperCase() + description.slice(1) : type === "income" ? "Ingreso" : "Gasto";
-    return { kind: "transaction", type, amount, category: guessCategory(description || t, type === "income"), description: desc };
-  }
-
-  if (/\b(balance|resumen|saldo|cuanto (he )?(gaste|gastado|llevo|tengo)|mis finanzas)\b/.test(t)) return { kind: "summary" };
   return { kind: "unknown" };
 }
