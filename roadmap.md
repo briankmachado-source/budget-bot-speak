@@ -11,4 +11,5 @@
 - [x] Permitir indicar y guardar el número de cuotas pendientes de un pago.
 - [x] Permitir editar un pago pendiente.
 - [x] Quitar el panel de finanzas de ingresos y gastos (balance, gráfica, historial y formulario de movimientos); la app queda con pagos pendientes, recordatorios y clima.
+- [x] En "Nuevo recordatorio", poner el nombre "Establecer fecha y hora" dentro del propio recuadro de fecha.
 - [ ] Probar la voz con micrófono real en Chrome (requiere un dispositivo con micrófono del usuario).
