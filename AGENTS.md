@@ -11,5 +11,6 @@
 
 - Keep voice recognition continuously active after user activation, automatically recovering from browser silence or interruption, because voice is the app's primary interaction.
 - No AI/LLM and no YouTube: voice commands are parsed by fixed Spanish phrase rules in `src/lib/commands.ts`. Why: zero per-use cost and no third-party quotas for thousands of users.
-- Keep scheduled payments in their own owner-scoped table and PaymentPanel; paid status must not reinterpret or duplicate historical transactions.
+- The app has no income/expense finance panel: no balance, charts, transaction form or transaction voice commands. Voice commands cover only reminders and weather (src/lib/commands.ts); keep parseAmount there because PaymentPanel uses it.
+- Keep scheduled payments in their own owner-scoped table and PaymentPanel.
 - Use a shared confirmation-based DeleteButton for record deletion; show actions on touch screens and update query caches after successful writes.
