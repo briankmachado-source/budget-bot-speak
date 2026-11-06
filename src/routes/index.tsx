@@ -156,7 +156,7 @@ function ReminderForm({ userId }: { userId: string }) {
             onFocus={() => setTimeFocused(true)}
             onBlur={() => setTimeFocused(false)}
             className={cn(
-              "h-12 pb-1 pt-4",
+              "h-14 pb-1 pt-5",
               !when && !timeFocused && "text-transparent",
             )}
           />
