@@ -147,30 +147,18 @@ function ReminderForm({ userId }: { userId: string }) {
       <h2 className="text-lg font-semibold">Nuevo recordatorio</h2>
       <div className="grid gap-2 sm:grid-cols-2">
         <Input placeholder="Qué recordar" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <div className="relative">
-          <Input
+        <label className="block rounded-md border border-input bg-transparent px-3 py-1.5 shadow-sm transition-colors focus-within:outline-none focus-within:ring-1 focus-within:ring-ring">
+          <span className={cn("block text-[11px] font-medium uppercase tracking-wide text-muted-foreground", !when && "text-foreground/70")}>
+            Establecer fecha y hora
+          </span>
+          <input
             type="datetime-local"
             aria-label="Establecer fecha y hora"
             value={when}
             onChange={(e) => setWhen(e.target.value)}
-            onFocus={() => setTimeFocused(true)}
-            onBlur={() => setTimeFocused(false)}
-            className={cn(
-              "h-14 pb-1 pt-5",
-              !when && !timeFocused && "text-transparent",
-            )}
+            className="w-full bg-transparent text-base outline-none md:text-sm"
           />
-          <span
-            className={cn(
-              "pointer-events-none absolute left-3 text-muted-foreground transition-all",
-              !when && !timeFocused
-                ? "top-1/2 -translate-y-1/2 text-sm"
-                : "top-1.5 text-[11px] font-medium uppercase tracking-wide",
-            )}
-          >
-            Establecer fecha y hora
-          </span>
-        </div>
+        </label>
       </div>
       <Button type="submit"><Plus className="mr-1 h-4 w-4" /> Crear</Button>
     </form>
