@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ReminderDateInput } from "@/components/ReminderDateInput";
 import { reminderChanges, toLocalDateTime } from "@/lib/reminder-edit";
 
-type Reminder = { id: string; title: string; remind_at: string; done: boolean; notified: boolean };
+type Reminder = { id: string; title: string; remind_at: string; done: boolean; notified: boolean; pushed: boolean };
 
 function PhoneToggle() {
   const [on, setOn] = useState(false);
