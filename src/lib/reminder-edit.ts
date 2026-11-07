@@ -4,9 +4,10 @@ export function toLocalDateTime(value: string) {
   return local.toISOString().slice(0, 16);
 }
 
-export function reminderChanges(current: { remind_at: string; notified: boolean }, title: string, when: string) {
+export function reminderChanges(current: { remind_at: string; notified: boolean; pushed: boolean }, title: string, when: string) {
   const date = new Date(when);
   if (!title.trim() || Number.isNaN(date.getTime())) throw new Error("Escribe qué recordar y cuándo");
   const remind_at = date.toISOString();
-  return { title: title.trim(), remind_at, notified: date.getTime() === new Date(current.remind_at).getTime() ? current.notified : false };
+  const sameTime = date.getTime() === new Date(current.remind_at).getTime();
+  return { title: title.trim(), remind_at, notified: sameTime ? current.notified : false, pushed: sameTime ? current.pushed : false };
 }
