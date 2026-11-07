@@ -1,7 +1,7 @@
 # Roadmap
 
-- [ ] Quitar la sugerencia de pagar el arriendo y recuperar campos compactos.
-- [ ] Permitir editar recordatorios y verificar que los cambios se guardan.
+- [x] Quitar la sugerencia de pagar el arriendo y recuperar campos compactos.
+- [x] Permitir editar recordatorios pendientes y completados; título y fecha guardados tras recargar, verificados en escritorio y teléfono.
 
 - [x] Evitar que la escucha continua se bloquee o deje de responder.
 - [x] Mostrar un aviso claro cuando el micrófono no esté disponible.
